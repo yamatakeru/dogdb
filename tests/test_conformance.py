@@ -200,6 +200,41 @@ def test_backends_produce_matching_mood_event_sequences():
     assert signatures[0] == signatures[1]
 
 
+def test_backends_produce_matching_auto_return_event_sequences():
+    signatures = []
+    for backend in ("duckdb", "sqlite"):
+        conn = dogdb.wrap(
+            _populated(backend),
+            seed=42,
+            session_id="auto-return-conformance",
+            faults={"STASH": 1},
+            auto_return=(1, 1),
+        )
+        conn.execute("select id from t order by id").fetchall()
+        conn.execute("create table trigger_auto(x integer)")
+        signatures.append(conn.dolly.log())
+    assert signatures[0] == signatures[1]
+
+
+def test_backends_produce_matching_old_bone_events_and_stats():
+    signatures = []
+    stats = []
+    for backend in ("duckdb", "sqlite"):
+        conn = dogdb.wrap(
+            _populated(backend),
+            seed=42,
+            session_id="old-bone-conformance",
+            faults={"OLD_BONE": 1},
+        )
+        conn.execute("select text_value from t order by id").fetchall()
+        conn.execute("update t set text_value = 'updated' where id = 1")
+        conn.execute("select text_value from t order by id").fetchall()
+        signatures.append(conn.dolly.log())
+        stats.append(conn.dolly.stats())
+    assert signatures[0] == signatures[1]
+    assert stats[0] == stats[1]
+
+
 class _TypedCursor:
     description = (("tz",), ("amount",), ("payload",))
     rowcount = -1

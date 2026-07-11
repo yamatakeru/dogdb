@@ -50,15 +50,15 @@
 
 ## 7. 自動返却とstale-read-cache
 
-- [ ] 7.1 RETURN_TREASURE自動返却（保持期間導出、操作冒頭での返却、`phase="auto_return"`）を実装する
-- [ ] 7.2 stale-read-cache（配達済み結果の保持、fingerprintごとリングK＋全体上限、決定的退避、行値のログ非出力）を実装する
-- [ ] 7.3 OLD_BONE（過去エントリ必須の候補条件、`stale_read`・`stale_occurrence`）を実装する
-- [ ] 7.4 検証: 自動返却タイミングの2run一致、退避の決定性、キャッシュ行値がログファイルに現れないこと、house再建テスト（auto_return含むログ→射影一致）の拡張
+- [x] 7.1 RETURN_TREASURE自動返却（保持期間導出、操作冒頭での返却、`phase="auto_return"`）を実装する
+- [x] 7.2 stale-read-cache（配達済み結果の保持、fingerprintごとリングK＋全体上限、決定的退避、行値のログ非出力）を実装する
+- [x] 7.3 OLD_BONE（過去エントリ必須の候補条件、`stale_read`・`stale_occurrence`）を実装する
+- [x] 7.4 検証: 自動返却タイミングの2run一致、退避の決定性、キャッシュ行値がログファイルに現れないこと、house再建テスト（auto_return含むログ→射影一致）の拡張
 
 ## 8. 観測・調査・文書
 
-- [ ] 8.1 `conn.dolly.stats()`（fingerprint単位の分類内訳・介入数、生SQL非含有）を実装する
-- [ ] 8.2 `docs/orphan-write-investigation.md` を執筆する（NO_DROPの書き込み拡張の安全条件調査。実装可否の結論を明記し、実装しない結論も可）
-- [ ] 8.3 READMEと `examples/` を更新する（新障害の1個ずつ足す導線、mood・auto_return・OLD_BONEのopt-in例、no-op clockのテスト例）
-- [ ] 8.4 検証: `openspec validate expand-dolly-faults`、`uv run pytest` 全通過、examplesの実行確認（`uv run python examples/*.py`）
+- [x] 8.1 `conn.dolly.stats()`（fingerprint単位の分類内訳・介入数、生SQL非含有）を実装する
+- [x] 8.2 `docs/orphan-write-investigation.md` を執筆する（NO_DROPの書き込み拡張の安全条件調査。実装可否の結論を明記し、実装しない結論も可）
+- [x] 8.3 READMEと `examples/` を更新する（新障害の1個ずつ足す導線、mood・auto_return・OLD_BONEのopt-in例、no-op clockのテスト例）
+- [x] 8.4 検証: `openspec validate expand-dolly-faults`、`uv run pytest` 全通過、examplesの実行確認（`uv run python examples/*.py`）
 - [ ] 8.5 CodeRabbitレビューを実施し指摘に対応する（AGENTS.md準拠、simplify検討を含む）

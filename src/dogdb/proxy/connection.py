@@ -10,13 +10,17 @@ from typing import Any, Callable
 
 from dogdb.adapters.duckdb import DuckDBAdapter
 from dogdb.adapters.sqlite import SQLiteAdapter
+from dogdb.core.auto_return import AutoReturnScheduler, parse_auto_return_config
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.event_log import Event, EventLog
 from dogdb.core.faults import KNOWN_FAULTS, FaultEngine, FaultPolicy
 from dogdb.core.house import HouseLedger, Treasure
+from dogdb.core.fingerprints import template_fingerprint
 from dogdb.core.models import LogicalResult
 from dogdb.core.mood import MoodEngine, parse_mood_config
 from dogdb.core.sql import SQLKind, classify_sql
+from dogdb.core.stale_cache import StaleReadCache
+from dogdb.core.stats import StatsTracker
 
 
 class DollyNamespace:
@@ -29,7 +33,12 @@ class DollyNamespace:
     def log(self) -> list[Event]:
         return self._proxy._events.events()
 
+    def stats(self) -> dict[str, object]:
+        return self._proxy._stats.snapshot()
+
     def return_treasure(self, treasure_id: str) -> Treasure | None:
+        if self._proxy._auto_return is not None:
+            self._proxy._auto_return.cancel(treasure_id)
         treasure = self._proxy._house.return_treasure(treasure_id)
         if treasure is not None:
             self._log_return(treasure)
@@ -38,19 +47,24 @@ class DollyNamespace:
     def return_all(self) -> list[Treasure]:
         returned = self._proxy._house.return_all()
         for treasure in returned:
+            if self._proxy._auto_return is not None:
+                self._proxy._auto_return.cancel(treasure.treasure_id)
             self._log_return(treasure)
         return returned
 
-    def _log_return(self, treasure: Treasure) -> None:
+    def _log_return(self, treasure: Treasure, *, phase: str = "manual_return") -> None:
         seq = len(self._proxy._events.events()) + 1
-        event_id = self._proxy._decisions.legacy_id(
-            treasure.decision_key, f"event:{seq}:RETURN"
+        tag = f"event:{seq}:RETURN"
+        event_id = (
+            self._proxy._decisions.legacy_id(treasure.decision_key, tag)
+            if phase == "manual_return"
+            else self._proxy._decisions.deterministic_id(treasure.decision_key, tag)
         )
         self._proxy._events.append(
             event_id=event_id,
             event_type="treasure_returned",
             fault="STASH",
-            phase="manual_return",
+            phase=phase,
             template_fingerprint=treasure.template_fingerprint,
             parameter_fingerprint=treasure.parameter_fingerprint,
             occurrence=treasure.occurrence,
@@ -78,6 +92,9 @@ class DBAPIProxy:
         debug: bool,
         clock: Callable[[float], None],
         mood: MoodEngine | None,
+        auto_return: AutoReturnScheduler | None,
+        stale_cache: StaleReadCache | None,
+        stats: StatsTracker,
     ) -> None:
         self._connection = connection
         self._adapter = adapter
@@ -95,8 +112,15 @@ class DBAPIProxy:
             debug,
             clock,
             mood,
+            auto_return,
+            stale_cache,
+            stats.record_intervention,
         )
         self._mood = mood
+        self._auto_return = auto_return
+        self._stale_cache = stale_cache
+        self._stats = stats
+        self._logical_tick = 0 if mood is not None or auto_return is not None else None
         self._only_tables = only_tables
         self._exclude_tables = exclude_tables
         self._result = LogicalResult([], [], -1)
@@ -104,8 +128,10 @@ class DBAPIProxy:
         self.dolly = DollyNamespace(self)
 
     def execute(self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None) -> DBAPIProxy:
-        self._advance_mood()
+        self._begin_operation()
         classification = classify_sql(sql)
+        fingerprint = template_fingerprint(sql)
+        self._stats.record_classification(fingerprint, classification.kind)
         if (
             isinstance(params, Mapping)
             or classification.kind is SQLKind.UNKNOWN
@@ -136,13 +162,28 @@ class DBAPIProxy:
             if scoped and not before_consumed
             else result
         )
+        if (
+            self._stale_cache is not None
+            and scoped
+            and classification.kind is SQLKind.SELECT
+        ):
+            self._stale_cache.add(on_result, self._result)
         self._offset = 0
         return self
 
-    def _advance_mood(self) -> None:
+    def _begin_operation(self) -> None:
+        if self._logical_tick is None:
+            return
+        self._logical_tick += 1
+        if self._auto_return is not None:
+            for treasure_id in self._auto_return.advance(self._logical_tick):
+                treasure = self._house.return_treasure(treasure_id)
+                if treasure is not None:
+                    self.dolly._log_return(treasure, phase="auto_return")
         if self._mood is None:
             return
         transition = self._mood.advance()
+        assert self._mood.tick == self._logical_tick
         if transition is None:
             return
         seq = len(self._events.events()) + 1
@@ -166,7 +207,7 @@ class DBAPIProxy:
         return True
 
     def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DBAPIProxy:
-        self._advance_mood()
+        self._begin_operation()
         cursor = self._connection.executemany(sql, params)
         self._result = LogicalResult([], [], getattr(cursor, "rowcount", -1))
         self._offset = 0
@@ -251,6 +292,7 @@ def wrap(
     sloth_max_delay_ms: int = 1_000,
     clock: Callable[[float], None] = time.sleep,
     mood: bool | Mapping[str, Any] | None = False,
+    auto_return: bool | Mapping[str, Any] | Sequence[int] | None = False,
     log_path: str | Path | None = None,
     event_log: str | Path | None = None,
     max_rows: int = 10_000,
@@ -279,6 +321,18 @@ def wrap(
         if mood_config is not None
         else None
     )
+    auto_return_config = parse_auto_return_config(auto_return)
+    auto_return_scheduler = (
+        AutoReturnScheduler(auto_return_config)
+        if auto_return_config is not None
+        else None
+    )
+    stale_cache = (
+        StaleReadCache(include_params=include_params, max_rows=max_rows)
+        if probabilities.get("OLD_BONE", 0) > 0
+        else None
+    )
+    stats = StatsTracker()
     return DBAPIProxy(
         connection,
         _adapter_for(connection),
@@ -301,6 +355,9 @@ def wrap(
         debug=debug,
         clock=clock,
         mood=mood_engine,
+        auto_return=auto_return_scheduler,
+        stale_cache=stale_cache,
+        stats=stats,
     )
 
 

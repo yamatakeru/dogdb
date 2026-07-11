@@ -23,7 +23,9 @@ from dogdb.core.models import Decision, LogicalResult
 from dogdb.core.sql import SQLClassification, SQLKind
 
 if TYPE_CHECKING:
+    from dogdb.core.auto_return import AutoReturnScheduler
     from dogdb.core.mood import MoodEngine
+    from dogdb.core.stale_cache import StaleEntry, StaleReadCache
 
 
 KNOWN_FAULTS = frozenset(
@@ -149,6 +151,9 @@ class FaultEngine:
         debug: bool = False,
         clock: Callable[[float], None] | None = None,
         mood: MoodEngine | None = None,
+        auto_return: AutoReturnScheduler | None = None,
+        stale_cache: StaleReadCache | None = None,
+        intervention_callback: Callable[[str], None] | None = None,
     ) -> None:
         self.decisions = decisions
         self.events = events
@@ -158,6 +163,9 @@ class FaultEngine:
         self.debug = debug
         self.clock = clock
         self.mood = mood
+        self.auto_return = auto_return
+        self.stale_cache = stale_cache
+        self.intervention_callback = intervention_callback
 
     def _fires(self, decision: Decision, fault: str) -> bool:
         fault_name = fault.removesuffix("_ERROR")
@@ -210,7 +218,7 @@ class FaultEngine:
             if fault in {"STASH", "SHUFFLE", "IGNORE"}
             else self.decisions.deterministic_id(decision.decision_key, tag)
         )
-        return self.events.append(
+        event = self.events.append(
             event_id=event_id,
             event_type="fault_injected",
             fault=fault,
@@ -222,6 +230,9 @@ class FaultEngine:
             outcome=outcome,
             details=details,
         )
+        if self.intervention_callback is not None:
+            self.intervention_callback(decision.template_fingerprint)
+        return event
 
     def before_execute(self, decision: Decision) -> bool:
         selected = self.select_candidate(
@@ -325,6 +336,8 @@ class FaultEngine:
         if sticky:
             hidden = {treasure.row_index for treasure in sticky}
             rows = [row for index, row in enumerate(result.rows) if index not in hidden]
+            if self.intervention_callback is not None:
+                self.intervention_callback(decision.template_fingerprint)
             return LogicalResult(result.columns, rows, len(rows))
 
         candidates: list[str] = []
@@ -354,6 +367,13 @@ class FaultEngine:
         if chew_choice is not None:
             candidates.append("CHEW")
         candidates.append("WRONG_COUNT")
+        stale_history = (
+            self.stale_cache.history(decision)
+            if self.stale_cache is not None
+            else []
+        )
+        if stale_history:
+            candidates.append("OLD_BONE")
         selected = self.select_candidate(decision, candidates, phase="on_result")
 
         if selected in {"STASH", "STASH_ERROR"}:
@@ -375,6 +395,8 @@ class FaultEngine:
             return self._chew(decision, result, chew_choice)
         if selected == "WRONG_COUNT":
             return self._wrong_count(decision, result)
+        if selected == "OLD_BONE":
+            return self._old_bone(decision, stale_history)
         self._debug_decision(decision, candidates=candidates)
         return result
 
@@ -443,6 +465,8 @@ class FaultEngine:
         )
         if not self.house.add(treasure):
             return result
+        if self.auto_return is not None:
+            self.auto_return.schedule(treasure.treasure_id, decision.decision_key)
         event = self._event(
             decision,
             fault="STASH",
@@ -629,6 +653,24 @@ class FaultEngine:
             },
         )
         return LogicalResult(list(result.columns), list(result.rows), reported)
+
+    def _old_bone(
+        self, decision: Decision, history: list[StaleEntry]
+    ) -> LogicalResult:
+        selected = history[
+            self._derived_index(decision, "stale:OLD_BONE", len(history))
+        ]
+        self._event(
+            decision,
+            fault="OLD_BONE",
+            outcome="stale_read",
+            details={"stale_occurrence": selected.occurrence},
+        )
+        return LogicalResult(
+            list(selected.result.columns),
+            [tuple(row) for row in selected.result.rows],
+            selected.result.rowcount,
+        )
 
 
 _INELIGIBLE = object()
