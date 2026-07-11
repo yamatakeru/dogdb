@@ -16,8 +16,8 @@ def minimum_balance(rows: list[tuple[int]]) -> int:
 
 
 raw = sqlite3.connect(":memory:")
-raw.execute("create table transactions(seq integer, change integer)")
-raw.executemany(
+_ = raw.execute("create table transactions(seq integer, change integer)")
+_ = raw.executemany(
     "insert into transactions values (?, ?)",
     [(1, 100), (2, -80), (3, -10)],
 )

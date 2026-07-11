@@ -7,8 +7,8 @@ import dogdb
 
 def database() -> sqlite3.Connection:
     raw = sqlite3.connect(":memory:")
-    raw.execute("create table treats(id integer, name text)")
-    raw.executemany(
+    _ = raw.execute("create table treats(id integer, name text)")
+    _ = raw.executemany(
         "insert into treats values (?, ?)",
         [(1, "ほね"), (2, "ボール"), (3, "ロープ")],
     )
@@ -30,5 +30,7 @@ sloth = dogdb.wrap(
 )
 sloth_rows = sloth.execute("select id, name from treats order by id").fetchall()
 print(f"SLOTHだけを有効化（待ち時間なし）: {sloth_rows}")
-print(f"論理遅延: {sloth.dolly.log()[0].details['delay_ms']}ms")
+sloth_details = sloth.dolly.log()[0].details
+assert sloth_details is not None
+print(f"論理遅延: {sloth_details['delay_ms']}ms")
 print(f"clockへ渡された秒数: {sleeps}")

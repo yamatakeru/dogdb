@@ -1,16 +1,18 @@
 """DogDB を pytest フィクスチャで使う最小例。"""
 
 import sqlite3
+from collections.abc import Iterator
 
 import dogdb
 import pytest
+from dogdb.proxy import DBAPIProxy
 
 
 @pytest.fixture
-def conn():
+def conn() -> Iterator[DBAPIProxy]:
     raw = sqlite3.connect(":memory:")
-    raw.execute("create table treats(id integer, name text)")
-    raw.executemany(
+    _ = raw.execute("create table treats(id integer, name text)")
+    _ = raw.executemany(
         "insert into treats values (?, ?)",
         [(1, "ほね"), (2, "ボール"), (3, "ロープ")],
     )
@@ -24,17 +26,19 @@ def conn():
     wrapped.close()
 
 
-def load_all_treats(conn, expected_count: int) -> list[tuple[int, str]]:
+def load_all_treats(
+    conn: DBAPIProxy, expected_count: int
+) -> list[tuple[int, str]]:
     """欠落を検知したら隠された行を返し、同じ読取りを再試行する。"""
     sql = "select id, name from treats order by id"
     rows = conn.execute(sql).fetchall()
     if len(rows) != expected_count and conn.dolly.house():
-        conn.dolly.return_all()
+        _ = conn.dolly.return_all()
         rows = conn.execute(sql).fetchall()
     return rows
 
 
-def test_application_recovers_from_stash(conn):
+def test_application_recovers_from_stash(conn: DBAPIProxy) -> None:
     rows = load_all_treats(conn, expected_count=3)
 
     assert rows == [(1, "ほね"), (2, "ボール"), (3, "ロープ")]

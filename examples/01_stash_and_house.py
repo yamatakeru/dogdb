@@ -6,8 +6,8 @@ import dogdb
 
 
 raw = sqlite3.connect(":memory:")
-raw.execute("create table treasures(id integer, name text)")
-raw.executemany(
+_ = raw.execute("create table treasures(id integer, name text)")
+_ = raw.executemany(
     "insert into treasures values (?, ?)",
     [(1, "ほね"), (2, "ボール"), (3, "ロープ")],
 )
@@ -29,7 +29,7 @@ second = conn.execute(sql).fetchall()
 print(f"2回目（同じ行が隠れ続ける）: {second}")
 print(f"粘着性を確認: {hidden not in first and hidden not in second}")
 
-conn.dolly.return_all()
+_ = conn.dolly.return_all()
 restored = conn.execute(sql).fetchall()
 print(f"return_all() 後: {restored}")
 print(f"house は空: {conn.dolly.house() == []}")
