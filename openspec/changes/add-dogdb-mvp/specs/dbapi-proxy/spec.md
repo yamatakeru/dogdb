@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: 接続のラップ
-`dogdb.wrap(conn, seed=...)` は、既存のDuckDB/SQLite接続を包むDB-API互換プロキシを返さなければならない（SHALL）。`seed` は必須引数であり、暗黙の乱数源を持ってはならない（MUST NOT）。便宜関数 `dogdb.connect(path, backend=..., seed=...)` も同じプロキシを返さなければならない（SHALL）。
+`dogdb.wrap(conn, seed=...)` は、既存のDuckDB/SQLite接続を包むDB-API互換プロキシを返さなければならない（SHALL）。`seed` は必須引数であり、暗黙の乱数源を持ってはならない（MUST NOT）。便宜関数 `dogdb.connect(path, backend=..., seed=...)` も同じプロキシを返さなければならず（SHALL）、`wrap` と同様に `seed` は必須であり、省略した呼び出しは拒否されなければならない（MUST）。
 
 #### Scenario: DuckDB接続をラップする
 - **WHEN** `dogdb.wrap(duckdb.connect(), seed=42)` を呼ぶ

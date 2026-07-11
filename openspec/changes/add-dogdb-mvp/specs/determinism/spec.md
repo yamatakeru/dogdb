@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: 決定キーの純粋性
-障害の発火判定と内容は、`(policy_version, seed, session_id, template_fingerprint, occurrence, phase)` の純粋関数でなければならない（MUST）。wall-clock時刻、OS乱数、Python組み込み `hash()` を決定に使ってはならない（MUST NOT）。
+障害の発火判定と内容は、既定では `(policy_version, seed, session_id, template_fingerprint, occurrence, phase)` の純粋関数でなければならない（MUST）。`include_params=True` の場合に限り、HMAC化されたパラメータfingerprintがこの決定入力の末尾に追加される（SHALL）。いずれの構成でも決定は入力に対する純粋関数であり、wall-clock時刻、OS乱数、Python組み込み `hash()` を決定に使ってはならない（MUST NOT）。
 
 #### Scenario: 同一入力列は同一イベント列
 - **WHEN** 同一seed・同一session_id指定・同一クエリ列で2回実行する

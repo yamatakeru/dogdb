@@ -48,6 +48,6 @@
 - [x] 6.1 言語中立仕様書 `docs/contract-v1.md` を書く（イベントスキーマv1、決定関数、house意味論、fingerprint正規化規則。将来の他言語実装・プロキシ形態の契約）
 - [x] 6.2 READMEを書く（ドリーの写真、クイックスタート、障害→実在障害クラス対応表、限界の明記: 行同一性は結果位置・単一writer・テスト専用ツール、キャッチコピー "Sometimes your data has gone to the doghouse."）
 - [x] 6.3 実挙動確認: REPLでSTASH/SHUFFLE/IGNOREを発火させ、`Dolly took row #7 to her house.` が実際に出ること、`conn.dolly.house()` で宝物が見えることを目視確認する
-- [ ] 6.4 CodeRabbitによるcode-reviewを実施し、指摘に対応する（AGENTS.md要件）
-- [ ] 6.5 simplifyレビューを実施し、適用可能な簡素化を反映する（AGENTS.md要件）
+- [x] 6.4 CodeRabbitによるcode-reviewを実施し、指摘に対応する（AGENTS.md要件）
+- [x] 6.5 simplifyレビューを実施し、適用可能な簡素化を反映する（AGENTS.md要件）
 - [x] 6.6 実装知見（SQL分類器の実介入率、アダプタ差分、メモリ上限の妥当値）を記録し、第二起票 `expand-dolly-faults` への反映点を洗い出す
