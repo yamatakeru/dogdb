@@ -23,7 +23,7 @@ rules:
     - 検証タスクには実行するコマンドまたは確認対象を含める。
     - tasksでは実装作業とchange配下の更新に限定し、openspec/specs/配下のmain spec更新はsync/archiveフェーズに委ねる
 
-  spec:
+  specs:
     - 日本語で記述する。
     - Requirement と Scenario の構造は OpenSpec 形式を維持する。
     - Requirement 本文には SHALL または MUST を含める。
