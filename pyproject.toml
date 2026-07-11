@@ -17,3 +17,7 @@ dev = ["pytest"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
