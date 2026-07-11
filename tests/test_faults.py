@@ -86,3 +86,49 @@ def test_backend_sql_error_is_not_wrapped():
     with pytest.raises(sqlite3.Error) as caught:
         conn.execute("select from")
     assert not isinstance(caught.value, DogDBError)
+
+
+def test_shape_fault_precedes_value_fault_in_fixed_priority():
+    conn = dogdb.wrap(_raw(), seed=42, faults={"ECHO": 1, "CHEW": 1})
+    template, parameter, occurrence = conn._decisions.begin("select id from t", None)
+    decision = conn._decisions.decide(
+        template=template,
+        parameter=parameter,
+        occurrence=occurrence,
+        phase="on_result",
+    )
+
+    selected = conn._faults.select_candidate(
+        decision, {"CHEW", "ECHO"}, phase="on_result"
+    )
+
+    assert selected == "ECHO"
+
+
+def test_all_declared_fault_names_are_accepted_before_their_opt_in_stages():
+    names = {
+        "BARK",
+        "GUARD_BOWL",
+        "IGNORE",
+        "SLOTH",
+        "NO_DROP",
+        "STASH",
+        "FALSE_EMPTY",
+        "TAIL_CHASE",
+        "PAGE_HOLE",
+        "ECHO",
+        "SHUFFLE",
+        "TANGLED_LEASH",
+        "CHEW",
+        "WRONG_COUNT",
+        "OLD_BONE",
+    }
+    conn = dogdb.wrap(_raw(), seed=42, faults={name: 0 for name in names})
+    assert set(conn._faults.policy.probabilities) == names
+
+
+def test_unknown_fault_name_is_rejected_before_wrapping():
+    raw = _raw()
+    with pytest.raises(ValueError, match=r"unknown faults: ZOOMIES"):
+        dogdb.wrap(raw, seed=42, faults={"ZOOMIES": 1})
+    assert raw.execute("select count(*) from t").fetchone() == (5,)

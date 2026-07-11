@@ -11,7 +11,7 @@ from dogdb.adapters.duckdb import DuckDBAdapter
 from dogdb.adapters.sqlite import SQLiteAdapter
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.event_log import Event, EventLog
-from dogdb.core.faults import FaultEngine, FaultPolicy
+from dogdb.core.faults import KNOWN_FAULTS, FaultEngine, FaultPolicy
 from dogdb.core.house import HouseLedger, Treasure
 from dogdb.core.models import LogicalResult
 from dogdb.core.sql import SQLKind, classify_sql
@@ -41,7 +41,7 @@ class DollyNamespace:
 
     def _log_return(self, treasure: Treasure) -> None:
         seq = len(self._proxy._events.events()) + 1
-        event_id = self._proxy._decisions.deterministic_id(
+        event_id = self._proxy._decisions.legacy_id(
             treasure.decision_key, f"event:{seq}:RETURN"
         )
         self._proxy._events.append(
@@ -71,6 +71,9 @@ class DBAPIProxy:
         log_path: str | Path | None,
         max_rows: int,
         house_limit: int,
+        only_tables: frozenset[str] | None,
+        exclude_tables: frozenset[str] | None,
+        debug: bool,
     ) -> None:
         self._connection = connection
         self._adapter = adapter
@@ -80,8 +83,15 @@ class DBAPIProxy:
         self._events = EventLog(session_id, log_path)
         self._house = HouseLedger(house_limit)
         self._faults = FaultEngine(
-            self._decisions, self._events, self._house, policy, max_rows
+            self._decisions,
+            self._events,
+            self._house,
+            policy,
+            max_rows,
+            debug,
         )
+        self._only_tables = only_tables
+        self._exclude_tables = exclude_tables
         self._result = LogicalResult([], [], -1)
         self._offset = 0
         self.dolly = DollyNamespace(self)
@@ -104,7 +114,9 @@ class DBAPIProxy:
             occurrence=occurrence,
             phase="before_execute",
         )
-        self._faults.before_execute(before)
+        scoped = self._scope_applies(classification.tables)
+        if scoped:
+            self._faults.before_execute(before)
         result = self._adapter.execute(sql, params)
         on_result = self._decisions.decide(
             template=template,
@@ -112,9 +124,20 @@ class DBAPIProxy:
             occurrence=occurrence,
             phase="on_result",
         )
-        self._result = self._faults.on_result(on_result, classification, result)
+        self._result = (
+            self._faults.on_result(on_result, classification, result)
+            if scoped
+            else result
+        )
         self._offset = 0
         return self
+
+    def _scope_applies(self, tables: frozenset[str] | None) -> bool:
+        if self._only_tables is not None:
+            return tables is not None and bool(tables & self._only_tables)
+        if self._exclude_tables is not None:
+            return tables is None or not bool(tables & self._exclude_tables)
+        return True
 
     def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DBAPIProxy:
         cursor = self._connection.executemany(sql, params)
@@ -195,12 +218,17 @@ def wrap(
     event_log: str | Path | None = None,
     max_rows: int = 10_000,
     house_limit: int = 1_000,
+    only_tables: Sequence[str] | None = None,
+    exclude_tables: Sequence[str] | None = None,
+    debug: bool = False,
 ) -> DBAPIProxy:
-    probabilities = {"STASH": 0.0, "SHUFFLE": 0.0, "IGNORE": 0.0}
+    if only_tables is not None and exclude_tables is not None:
+        raise ValueError("only_tables and exclude_tables are mutually exclusive")
+    probabilities: dict[str, float] = {}
     supplied = fault_probabilities if fault_probabilities is not None else faults
     if supplied:
         probabilities.update({str(key).upper(): value for key, value in supplied.items()})
-    unknown = set(probabilities) - {"STASH", "SHUFFLE", "IGNORE"}
+    unknown = set(probabilities) - KNOWN_FAULTS
     if unknown:
         raise ValueError(f"unknown faults: {', '.join(sorted(unknown))}")
     if session_id is None:
@@ -212,16 +240,23 @@ def wrap(
         seed=seed,
         session_id=session_id,
         include_params=include_params,
-        policy=FaultPolicy(
-            stash=probabilities["STASH"],
-            shuffle=probabilities["SHUFFLE"],
-            ignore=probabilities["IGNORE"],
-            stash_mode=stash_mode,
-        ),
+        policy=FaultPolicy(probabilities=probabilities, stash_mode=stash_mode),
         log_path=log_path if log_path is not None else event_log,
         max_rows=max_rows,
         house_limit=house_limit,
+        only_tables=_normalize_tables(only_tables),
+        exclude_tables=_normalize_tables(exclude_tables),
+        debug=debug,
     )
+
+
+def _normalize_tables(tables: Sequence[str] | None) -> frozenset[str] | None:
+    if tables is None:
+        return None
+    normalized = frozenset(table.strip().lower() for table in tables)
+    if not all(normalized):
+        raise ValueError("table scope names must not be empty")
+    return normalized
 
 
 def connect(

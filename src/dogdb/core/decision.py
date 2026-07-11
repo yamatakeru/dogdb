@@ -58,11 +58,28 @@ class DecisionEngine:
         return Decision(template, parameter, occurrence, phase, f"sha256:{digest}")
 
     @staticmethod
-    def unit_interval(decision_key: str, label: str) -> float:
+    def derive(decision_key: str, tag: str) -> bytes:
+        """Derive bytes for one v2 purpose using the contract separator."""
+
+        return hashlib.sha256(f"{decision_key}:{tag}".encode("utf-8")).digest()
+
+    @classmethod
+    def unit_interval(cls, decision_key: str, tag: str) -> float:
+        digest = cls.derive(decision_key, tag)
+        return int.from_bytes(digest[:8], "big") / 2**64
+
+    @classmethod
+    def deterministic_id(cls, decision_key: str, tag: str) -> str:
+        return cls.derive(decision_key, tag).hex()[:32]
+
+    @staticmethod
+    def legacy_unit_interval(decision_key: str, label: str) -> float:
+        """Preserve the v1 STASH/SHUFFLE/IGNORE decision stream."""
+
         digest = hashlib.sha256(f"{decision_key}\0{label}".encode()).digest()
         return int.from_bytes(digest[:8], "big") / 2**64
 
     @staticmethod
-    def deterministic_id(decision_key: str, label: str) -> str:
+    def legacy_id(decision_key: str, label: str) -> str:
         digest = hashlib.sha256(f"{decision_key}\0{label}".encode()).hexdigest()
         return digest[:32]

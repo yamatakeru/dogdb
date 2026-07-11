@@ -4,19 +4,19 @@
 
 ## 1. 契約とschema v2基盤
 
-- [ ] 1.1 `docs/contract-v2.md` を起草する（コアフィールド＋イベント種別別必須フィールド表、fault優先順位の全順序表、domain separation用途タグ一覧、warning outcome語彙）
-- [ ] 1.2 event writerを `schema_version: 2` へ更新する（`fault_injected` / `treasure_returned` のフィールド集合はv1と同一）
-- [ ] 1.3 readerのv1/v2混在受理と未知version行の警告スキップを実装する
-- [ ] 1.4 `limit_exceeded` 警告イベント（行数上限超過で素通しした際の記録）を実装する
-- [ ] 1.5 検証: v1固定fixtureログとv2追記の混在読み取りテスト、既存全テストの無回帰（`uv run pytest`）
+- [x] 1.1 `docs/contract-v2.md` を起草する（コアフィールド＋イベント種別別必須フィールド表、fault優先順位の全順序表、domain separation用途タグ一覧、warning outcome語彙）
+- [x] 1.2 event writerを `schema_version: 2` へ更新する（`fault_injected` / `treasure_returned` のフィールド集合はv1と同一）
+- [x] 1.3 readerのv1/v2混在受理と未知version行の警告スキップを実装する
+- [x] 1.4 `limit_exceeded` 警告イベント（行数上限超過で素通しした際の記録）を実装する
+- [x] 1.5 検証: v1固定fixtureログとv2追記の混在読み取りテスト、既存全テストの無回帰（`uv run pytest`）
 
 ## 2. 合成規則の一般化と設定API
 
-- [ ] 2.1 fault優先順位の固定全順序表（phase順→分類順→表順）でDecisionEngineの候補評価を一般化する
-- [ ] 2.2 乱数導出をdomain separationタグ形式（`SHA-256(decision_key ‖ ":" ‖ tag)`）へ統一する（既存STASH/SHUFFLE/IGNOREの決定値が変わらないことを固定fixtureで担保）
-- [ ] 2.3 `wrap()` の障害重み辞書の拡張と未知障害名の設定エラーを実装する
-- [ ] 2.4 スコーピング `only_tables` / `exclude_tables` と分類器のFROMテーブル名抽出（保守的）を実装する
-- [ ] 2.5 検証: 優先順位競合テスト（ECHO vs CHEW等）、抽出不能文の非対称既定（only指定→対象外 / exclude指定→対象）のテスト
+- [x] 2.1 fault優先順位の固定全順序表（phase順→分類順→表順）でDecisionEngineの候補評価を一般化する
+- [x] 2.2 乱数導出をdomain separationタグ形式（`SHA-256(decision_key ‖ ":" ‖ tag)`）へ統一する（既存STASH/SHUFFLE/IGNOREの決定値が変わらないことを固定fixtureで担保）
+- [x] 2.3 `wrap()` の障害重み辞書の拡張と未知障害名の設定エラーを実装する
+- [x] 2.4 スコーピング `only_tables` / `exclude_tables` と分類器のFROMテーブル名抽出（保守的）を実装する
+- [x] 2.5 検証: 優先順位競合テスト（ECHO vs CHEW等）、抽出不能文の非対称既定（only指定→対象外 / exclude指定→対象）のテスト
 
 ## 3. 形状変異の障害群
 

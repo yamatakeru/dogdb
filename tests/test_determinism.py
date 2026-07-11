@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
 import sqlite3
 import uuid
 from decimal import Decimal
@@ -9,6 +10,7 @@ import dogdb
 import pytest
 
 from dogdb.core.fingerprints import parameter_fingerprint
+from dogdb.core.decision import DecisionEngine
 
 
 def _database() -> sqlite3.Connection:
@@ -105,3 +107,19 @@ def test_stable_non_json_parameters_have_deterministic_fingerprint():
     key = b"fixed-key"
 
     assert parameter_fingerprint(params, key) == parameter_fingerprint(params, key)
+
+
+def test_v2_derivation_uses_colon_separated_purpose_tags():
+    decision_key = "sha256:fixed"
+    tag = "fire:ECHO"
+    assert DecisionEngine.derive(decision_key, tag) == hashlib.sha256(
+        f"{decision_key}:{tag}".encode()
+    ).digest()
+
+
+def test_fault_fire_tags_are_domain_separated():
+    keys = [f"sha256:{index:064x}" for index in range(64)]
+    echo = [DecisionEngine.unit_interval(key, "fire:ECHO") < 0.5 for key in keys]
+    chew = [DecisionEngine.unit_interval(key, "fire:CHEW") < 0.5 for key in keys]
+    assert echo != chew
+    assert any(left != right for left, right in zip(echo, chew, strict=True))

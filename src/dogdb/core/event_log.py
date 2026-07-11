@@ -1,4 +1,4 @@
-"""Append-only schema-v1 JSONL event log."""
+"""Append-only schema-v2 JSONL event log with v1 read compatibility."""
 
 from __future__ import annotations
 
@@ -16,18 +16,80 @@ class Event:
     session_id: str
     seq: int
     event_type: str
-    fault: str | None
-    phase: str
-    template_fingerprint: str
-    parameter_fingerprint: str
-    occurrence: int
-    decision_key: str
-    outcome: str
-    details: dict[str, Any]
+    fault: str | None = None
+    phase: str | None = None
+    template_fingerprint: str | None = None
+    parameter_fingerprint: str | None = None
+    occurrence: int | None = None
+    decision_key: str | None = None
+    outcome: str | None = None
+    details: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> Event:
-        return cls(**{field: value[field] for field in cls.__dataclass_fields__})
+        if not isinstance(value, dict):
+            raise ValueError("event must be a JSON object")
+        version = value.get("schema_version")
+        if version not in {1, 2}:
+            raise ValueError(f"unsupported schema_version {version!r}")
+        required = _required_fields(version, value.get("event_type"))
+        missing = required - value.keys()
+        if missing:
+            raise ValueError(f"missing required fields: {', '.join(sorted(missing))}")
+        return cls(
+            **{
+                field: value[field]
+                for field in cls.__dataclass_fields__
+                if field in value
+            }
+        )
+
+
+_CORE_FIELDS = {"schema_version", "event_id", "session_id", "seq", "event_type"}
+_V1_FIELDS = _CORE_FIELDS | {
+    "fault",
+    "phase",
+    "template_fingerprint",
+    "parameter_fingerprint",
+    "occurrence",
+    "decision_key",
+    "outcome",
+    "details",
+}
+_V2_FIELDS = {
+    "fault_injected": _V1_FIELDS,
+    "treasure_returned": _V1_FIELDS,
+    "mood_changed": _CORE_FIELDS | {"details"},
+    "limit_exceeded": _CORE_FIELDS
+    | {
+        "phase",
+        "template_fingerprint",
+        "parameter_fingerprint",
+        "occurrence",
+        "decision_key",
+        "outcome",
+        "details",
+    },
+    "decision_evaluated": _CORE_FIELDS
+    | {
+        "phase",
+        "template_fingerprint",
+        "parameter_fingerprint",
+        "occurrence",
+        "decision_key",
+        "outcome",
+        "details",
+    },
+}
+
+
+def _required_fields(version: int, event_type: object) -> set[str]:
+    if version == 1:
+        return _V1_FIELDS
+    try:
+        return _V2_FIELDS[str(event_type)]
+    except KeyError as error:
+        raise ValueError(f"unknown schema-v2 event_type {event_type!r}") from error
 
 
 class EventLog:
@@ -46,7 +108,7 @@ class EventLog:
     def append(self, **fields: Any) -> Event:
         self._seq += 1
         event = Event(
-            schema_version=1,
+            schema_version=2,
             session_id=self.session_id,
             seq=self._seq,
             **fields,
@@ -75,7 +137,13 @@ def read_events(path: str | Path) -> list[Event]:
         for line_number, line in enumerate(stream, 1):
             try:
                 events.append(Event.from_dict(json.loads(line.decode("utf-8"))))
-            except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as error:
+            except (
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as error:
                 warnings.warn(
                     f"skipping corrupt DogDB event at line {line_number}: {error}",
                     RuntimeWarning,
