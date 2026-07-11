@@ -1,24 +1,16 @@
 from __future__ import annotations
 
-import sqlite3
-
 import dogdb
 import pytest
 
+from conftest import raw_three_row_connection
+
 from dogdb.core.models import LogicalResult
-
-
-def _raw() -> sqlite3.Connection:
-    raw = sqlite3.connect(":memory:")
-    raw.execute("create table t(id integer)")
-    raw.executemany("insert into t values (?)", [(1,), (2,), (3,)])
-    return raw
-
 
 def test_sloth_uses_injected_clock_and_consumes_fault_slot():
     sleeps: list[float] = []
     conn = dogdb.wrap(
-        _raw(),
+        raw_three_row_connection(),
         seed=42,
         session_id="sloth",
         faults={"SLOTH": 1, "ECHO": 1},
@@ -41,7 +33,7 @@ def test_sloth_delay_and_event_are_deterministic():
     for _ in range(2):
         sleeps: list[float] = []
         conn = dogdb.wrap(
-            _raw(),
+            raw_three_row_connection(),
             seed=42,
             session_id="sloth-replay",
             faults={"SLOTH": 1},
@@ -55,12 +47,14 @@ def test_sloth_delay_and_event_are_deterministic():
 @pytest.mark.parametrize("value", [0, -1, True, 1.5])
 def test_sloth_delay_bound_must_be_a_positive_integer(value):
     with pytest.raises(ValueError, match="sloth_max_delay_ms"):
-        dogdb.wrap(_raw(), seed=42, sloth_max_delay_ms=value)
+        dogdb.wrap(raw_three_row_connection(), seed=42, sloth_max_delay_ms=value)
 
 
 def test_clock_must_be_callable():
     with pytest.raises(ValueError, match="clock must be callable"):
-        dogdb.wrap(_raw(), seed=42, clock=None)  # type: ignore[arg-type]
+        dogdb.wrap(
+            raw_three_row_connection(), seed=42, clock=None  # type: ignore[arg-type]
+        )
 
 
 @pytest.mark.parametrize(
@@ -71,7 +65,7 @@ def test_clock_must_be_callable():
     ],
 )
 def test_before_execute_errors_do_not_change_backend(fault, error_type):
-    raw = _raw()
+    raw = raw_three_row_connection()
     conn = dogdb.wrap(raw, seed=42, faults={fault: 1})
 
     with pytest.raises(error_type) as caught:
@@ -90,7 +84,7 @@ def test_bark_and_busy_errors_are_distinct_types():
 
 def test_before_execute_priority_selects_bark_first():
     conn = dogdb.wrap(
-        _raw(),
+        raw_three_row_connection(),
         seed=42,
         faults={"BARK": 1, "GUARD_BOWL": 1, "IGNORE": 1, "SLOTH": 1},
         clock=lambda _: None,
@@ -117,7 +111,7 @@ class _CountingAdapter:
 
 
 def test_no_drop_raises_only_after_backend_execution():
-    conn = dogdb.wrap(_raw(), seed=42, faults={"NO_DROP": 1})
+    conn = dogdb.wrap(raw_three_row_connection(), seed=42, faults={"NO_DROP": 1})
     adapter = _CountingAdapter()
     conn._adapter = adapter
 
@@ -133,7 +127,7 @@ def test_no_drop_raises_only_after_backend_execution():
 
 
 def test_no_drop_does_not_apply_to_writes():
-    raw = _raw()
+    raw = raw_three_row_connection()
     conn = dogdb.wrap(raw, seed=42, faults={"NO_DROP": 1})
     conn.execute("insert into t values (4)")
     assert raw.execute("select count(*) from t").fetchone() == (4,)

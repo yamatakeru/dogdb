@@ -84,7 +84,7 @@ def test_chew_value_profiles_cover_decimal_timezone_and_blob_cases():
     [("arbitrary_mutation",), ()],
 )
 def test_chew_profile_configuration_is_closed(profiles):
-    with pytest.raises(ValueError, match="CHEW profiles|must not be empty"):
+    with pytest.raises(ValueError, match=r"CHEW profiles|must not be empty"):
         dogdb.wrap(_raw(), seed=42, chew_profiles=profiles)
 
 

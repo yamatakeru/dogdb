@@ -1,24 +1,16 @@
 from __future__ import annotations
 
-import sqlite3
-
 import dogdb
 import pytest
+
+from conftest import raw_three_row_connection
 
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.house import rebuild_house
 
-
-def _raw() -> sqlite3.Connection:
-    raw = sqlite3.connect(":memory:")
-    raw.execute("create table t(id integer)")
-    raw.executemany("insert into t values (?)", [(1,), (2,), (3,)])
-    return raw
-
-
 def test_auto_return_runs_before_mood_and_current_fault():
     conn = dogdb.wrap(
-        _raw(),
+        raw_three_row_connection(),
         seed=42,
         session_id="s1",
         faults={"STASH": 1, "ECHO": 1},
@@ -51,7 +43,7 @@ def test_auto_return_timing_is_deterministic():
     runs = []
     for _ in range(2):
         conn = dogdb.wrap(
-            _raw(),
+            raw_three_row_connection(),
             seed=42,
             session_id="auto-replay",
             faults={"STASH": 1},
@@ -66,7 +58,7 @@ def test_auto_return_timing_is_deterministic():
 
 def test_hold_period_uses_standard_return_tag_within_configured_range():
     conn = dogdb.wrap(
-        _raw(), seed=42, faults={"STASH": 1}, auto_return=(2, 4)
+        raw_three_row_connection(), seed=42, faults={"STASH": 1}, auto_return=(2, 4)
     )
     conn.execute("select id from t order by id").fetchall()
     treasure = conn.dolly.house()[0]
@@ -81,7 +73,7 @@ def test_hold_period_uses_standard_return_tag_within_configured_range():
 
 def test_executemany_operation_can_trigger_auto_return():
     conn = dogdb.wrap(
-        _raw(), seed=42, faults={"STASH": 1}, auto_return=(1, 1)
+        raw_three_row_connection(), seed=42, faults={"STASH": 1}, auto_return=(1, 1)
     )
     conn.execute("select id from t order by id").fetchall()
     conn.executemany("insert into t values (?)", [(4,), (5,)])
@@ -92,7 +84,7 @@ def test_executemany_operation_can_trigger_auto_return():
 
 def test_manual_return_cancels_scheduled_auto_return():
     conn = dogdb.wrap(
-        _raw(), seed=42, faults={"STASH": 1}, auto_return=(2, 2)
+        raw_three_row_connection(), seed=42, faults={"STASH": 1}, auto_return=(2, 2)
     )
     conn.execute("select id from t order by id").fetchall()
     treasure_id = conn.dolly.house()[0].treasure_id
@@ -100,13 +92,15 @@ def test_manual_return_cancels_scheduled_auto_return():
     conn.execute("pragma user_version").fetchall()
     conn.execute("pragma user_version").fetchall()
 
-    returned = [event for event in conn.dolly.log() if event.event_type == "treasure_returned"]
+    returned = [
+        event for event in conn.dolly.log() if event.event_type == "treasure_returned"
+    ]
     assert [event.phase for event in returned] == ["manual_return"]
 
 
 def test_house_projection_includes_auto_return_events():
     conn = dogdb.wrap(
-        _raw(), seed=42, faults={"STASH": 1}, auto_return=(1, 1)
+        raw_three_row_connection(), seed=42, faults={"STASH": 1}, auto_return=(1, 1)
     )
     conn.execute("select id from t order by id").fetchall()
     conn.execute("pragma user_version").fetchall()
@@ -127,10 +121,10 @@ def test_house_projection_includes_auto_return_events():
 )
 def test_invalid_auto_return_settings_are_rejected(setting):
     with pytest.raises(ValueError, match="auto_return"):
-        dogdb.wrap(_raw(), seed=42, auto_return=setting)
+        dogdb.wrap(raw_three_row_connection(), seed=42, auto_return=setting)
 
 
 def test_auto_return_disabled_has_no_logical_clock():
-    conn = dogdb.wrap(_raw(), seed=42)
+    conn = dogdb.wrap(raw_three_row_connection(), seed=42)
     assert conn._auto_return is None
     assert conn._logical_tick is None

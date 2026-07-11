@@ -40,7 +40,10 @@ class StaleReadCache:
 
     def history(self, decision: Decision) -> list[StaleEntry]:
         key = self.key_for(decision)
-        return [self._entries[(key, occurrence)] for occurrence in self._by_key[key]]
+        occurrences = self._by_key.get(key)
+        if occurrences is None:
+            return []
+        return [self._entries[(key, occurrence)] for occurrence in occurrences]
 
     def add(self, decision: Decision, result: LogicalResult) -> bool:
         if len(result.rows) > self.max_rows:

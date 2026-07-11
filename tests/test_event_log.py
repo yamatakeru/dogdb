@@ -125,7 +125,10 @@ def test_v1_fixture_and_v2_append_are_read_together(tmp_path):
     events = read_events(path)
 
     assert [event.schema_version for event in events] == [1, 2]
-    assert [event.session_id for event in events] == ["legacy-session", conn._events.session_id]
+    assert [event.session_id for event in events] == [
+        "legacy-session",
+        conn._events.session_id,
+    ]
 
 
 def test_unknown_schema_version_is_skipped_with_warning(tmp_path):
@@ -152,6 +155,35 @@ def test_unknown_schema_version_is_skipped_with_warning(tmp_path):
         events = read_events(path)
 
     assert [event.event_id for event in events] == ["legacy-event"]
+
+
+def test_invalid_required_field_types_are_skipped_without_losing_valid_rows(
+    tmp_path,
+):
+    path = tmp_path / "invalid-types.jsonl"
+    valid = {
+        "schema_version": 2,
+        "event_id": "valid-event",
+        "session_id": "session",
+        "seq": 1,
+        "event_type": "mood_changed",
+        "details": {"from": "CALM", "to": "SLEEPY", "tick": 10},
+    }
+    invalid = [
+        {**valid, "schema_version": True, "event_id": "bool-version"},
+        {**valid, "event_id": None, "seq": 2},
+        {**valid, "event_id": "string-seq", "seq": "3"},
+    ]
+    final = {**valid, "event_id": "final-event", "seq": 4}
+    path.write_text(
+        "\n".join(json.dumps(event) for event in [valid, *invalid, final]) + "\n"
+    )
+
+    with pytest.warns(RuntimeWarning, match="corrupt DogDB event") as warnings:
+        events = read_events(path)
+
+    assert len(warnings) == 3
+    assert [event.event_id for event in events] == ["valid-event", "final-event"]
 
 
 def test_schema_v2_mood_event_does_not_require_fingerprint_fields(tmp_path):

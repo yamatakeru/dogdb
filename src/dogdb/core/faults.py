@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.errors import (
+    DogDBError,
     DollyBarkError,
     DollyBusyError,
     DollyIgnoredError,
@@ -21,6 +22,7 @@ from dogdb.core.event_log import Event, EventLog
 from dogdb.core.house import HouseLedger, Treasure
 from dogdb.core.models import Decision, LogicalResult
 from dogdb.core.sql import SQLClassification, SQLKind
+from dogdb.core.validation import require_positive_int
 
 if TYPE_CHECKING:
     from dogdb.core.auto_return import AutoReturnScheduler
@@ -64,6 +66,14 @@ ON_RESULT_PRIORITY = (
     "OLD_BONE",
 )
 CHEW_PROFILES = ("utf8_truncate", "precision_loss", "nullify")
+BEFORE_EXECUTE_ERRORS: dict[str, tuple[type[DogDBError], str]] = {
+    "BARK": (DollyBarkError, "Dolly barked and blocked the request."),
+    "GUARD_BOWL": (
+        DollyBusyError,
+        "Dolly is guarding the bowl; the database is busy.",
+    ),
+    "IGNORE": (DollyIgnoredError, "Dolly ignored the request and went back to sleep."),
+}
 
 
 @dataclass(slots=True)
@@ -99,18 +109,12 @@ class FaultPolicy:
             raise ValueError("chew_profiles must not be empty")
         if len(set(self.chew_profiles)) != len(self.chew_profiles):
             raise ValueError("chew_profiles must not contain duplicates")
-        if (
-            isinstance(self.wrong_count_max_delta, bool)
-            or not isinstance(self.wrong_count_max_delta, int)
-            or self.wrong_count_max_delta < 1
-        ):
-            raise ValueError("wrong_count_max_delta must be a positive integer")
-        if (
-            isinstance(self.sloth_max_delay_ms, bool)
-            or not isinstance(self.sloth_max_delay_ms, int)
-            or self.sloth_max_delay_ms < 1
-        ):
-            raise ValueError("sloth_max_delay_ms must be a positive integer")
+        self.wrong_count_max_delta = require_positive_int(
+            self.wrong_count_max_delta, "wrong_count_max_delta"
+        )
+        self.sloth_max_delay_ms = require_positive_int(
+            self.sloth_max_delay_ms, "sloth_max_delay_ms"
+        )
 
     def probability(self, fault: str) -> float:
         return self.probabilities[fault.removesuffix("_ERROR")]
@@ -211,7 +215,7 @@ class FaultEngine:
         outcome: str,
         details: dict[str, object],
     ) -> Event:
-        next_seq = len(self.events.events()) + 1
+        next_seq = self.events.next_seq()
         tag = f"event:{next_seq}:{fault}"
         event_id = (
             self.decisions.legacy_id(decision.decision_key, tag)
@@ -240,26 +244,13 @@ class FaultEngine:
             {"BARK", "GUARD_BOWL", "IGNORE", "SLOTH"},
             phase="before_execute",
         )
-        if selected == "BARK":
+        if selected in BEFORE_EXECUTE_ERRORS:
+            error_type, message = BEFORE_EXECUTE_ERRORS[selected]
             self._raise_before_execute(
                 decision,
-                fault="BARK",
-                error_type=DollyBarkError,
-                message="Dolly barked and blocked the request.",
-            )
-        if selected == "GUARD_BOWL":
-            self._raise_before_execute(
-                decision,
-                fault="GUARD_BOWL",
-                error_type=DollyBusyError,
-                message="Dolly is guarding the bowl; the database is busy.",
-            )
-        if selected == "IGNORE":
-            self._raise_before_execute(
-                decision,
-                fault="IGNORE",
-                error_type=DollyIgnoredError,
-                message="Dolly ignored the request and went back to sleep.",
+                fault=selected,
+                error_type=error_type,
+                message=message,
             )
         if selected == "SLOTH":
             delay_ms = 1 + self._derived_index(
@@ -285,9 +276,7 @@ class FaultEngine:
         decision: Decision,
         *,
         fault: str,
-        error_type: type[DollyBarkError]
-        | type[DollyBusyError]
-        | type[DollyIgnoredError],
+        error_type: type[DogDBError],
         message: str,
     ) -> None:
         event = self._event(
@@ -405,7 +394,7 @@ class FaultEngine:
     ) -> Event | None:
         if not self.debug:
             return None
-        next_seq = len(self.events.events()) + 1
+        next_seq = self.events.next_seq()
         return self.events.append(
             event_id=self.decisions.deterministic_id(
                 decision.decision_key, f"event:{next_seq}:DECISION"
@@ -421,7 +410,7 @@ class FaultEngine:
         )
 
     def _limit_exceeded(self, decision: Decision, *, observed: int) -> Event:
-        next_seq = len(self.events.events()) + 1
+        next_seq = self.events.next_seq()
         event_id = self.decisions.deterministic_id(
             decision.decision_key, f"event:{next_seq}:LIMIT"
         )
@@ -446,7 +435,7 @@ class FaultEngine:
     ) -> LogicalResult:
         digest = bytes.fromhex(decision.decision_key.removeprefix("sha256:"))
         row_index = int.from_bytes(digest[:8], "big") % len(result.rows)
-        next_seq = len(self.events.events()) + 1
+        next_seq = self.events.next_seq()
         event_id = self.decisions.legacy_id(
             decision.decision_key, f"event:{next_seq}:STASH"
         )

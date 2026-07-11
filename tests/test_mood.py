@@ -1,23 +1,17 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-
 import dogdb
 import pytest
 
+from conftest import raw_three_row_connection
+
 from dogdb.core.mood import MoodEngine, parse_mood_config
 
-
-def _raw() -> sqlite3.Connection:
-    raw = sqlite3.connect(":memory:")
-    raw.execute("create table t(id integer)")
-    raw.executemany("insert into t values (?)", [(1,), (2,), (3,)])
-    return raw
-
-
 def test_logical_clock_counts_passthrough_execute_and_executemany():
-    conn = dogdb.wrap(_raw(), seed=42, mood={"epoch_length": 100})
+    conn = dogdb.wrap(
+        raw_three_row_connection(), seed=42, mood={"epoch_length": 100}
+    )
     for _ in range(3):
         conn.execute("pragma user_version").fetchall()
     conn.execute("select id from t").fetchall()
@@ -30,7 +24,10 @@ def test_logical_clock_counts_passthrough_execute_and_executemany():
 
 def test_mood_changes_only_at_epoch_boundaries():
     conn = dogdb.wrap(
-        _raw(), seed=42, session_id="mood-boundary", mood={"epoch_length": 2}
+        raw_three_row_connection(),
+        seed=42,
+        session_id="mood-boundary",
+        mood={"epoch_length": 2},
     )
     for _ in range(8):
         conn.execute("select id from t").fetchall()
@@ -49,7 +46,7 @@ def test_mood_changes_only_at_epoch_boundaries():
 def test_mood_event_file_contains_only_core_fields_and_details(tmp_path):
     path = tmp_path / "mood.jsonl"
     conn = dogdb.wrap(
-        _raw(),
+        raw_three_row_connection(),
         seed=42,
         session_id="mood-boundary",
         mood={"epoch_length": 2},
@@ -118,15 +115,18 @@ def test_mood_multiplier_overrides_deep_merge_with_defaults():
 )
 def test_invalid_mood_settings_are_rejected(mood):
     with pytest.raises(ValueError, match="mood|fault"):
-        dogdb.wrap(_raw(), seed=42, mood=mood)
+        dogdb.wrap(raw_three_row_connection(), seed=42, mood=mood)
 
 
 def test_calm_mood_does_not_change_fault_decision_key_or_event():
     plain = dogdb.wrap(
-        _raw(), seed=42, session_id="calm-compatible", faults={"ECHO": 1}
+        raw_three_row_connection(),
+        seed=42,
+        session_id="calm-compatible",
+        faults={"ECHO": 1},
     )
     enabled = dogdb.wrap(
-        _raw(),
+        raw_three_row_connection(),
         seed=42,
         session_id="calm-compatible",
         faults={"ECHO": 1},
@@ -141,13 +141,16 @@ def test_calm_mood_does_not_change_fault_decision_key_or_event():
 
 def test_mood_changes_weight_only_and_not_decision_key():
     plain = dogdb.wrap(
-        _raw(), seed=42, session_id="weight-only", faults={"ECHO": 1}
+        raw_three_row_connection(),
+        seed=42,
+        session_id="weight-only",
+        faults={"ECHO": 1},
     )
     plain.execute("select id from t order by id").fetchall()
     expected_key = plain.dolly.log()[0].decision_key
 
     suppressed = dogdb.wrap(
-        _raw(),
+        raw_three_row_connection(),
         seed=42,
         session_id="weight-only",
         faults={"ECHO": 1},
@@ -168,7 +171,7 @@ def test_mood_changes_weight_only_and_not_decision_key():
 
 def test_sleepy_multiplier_changes_only_fire_threshold():
     conn = dogdb.wrap(
-        _raw(), seed=42, session_id="sleepy-threshold", mood=True
+        raw_three_row_connection(), seed=42, session_id="sleepy-threshold", mood=True
     )
     template, parameter, occurrence = conn._decisions.begin(
         "select id from t", None
@@ -201,7 +204,7 @@ def test_mood_enabled_runs_are_fully_deterministic():
     for _ in range(2):
         sleeps: list[float] = []
         conn = dogdb.wrap(
-            _raw(),
+            raw_three_row_connection(),
             seed=42,
             session_id="mood-replay",
             faults={"SLOTH": 0.35, "ECHO": 0.35},
@@ -219,7 +222,7 @@ def test_mood_enabled_runs_are_fully_deterministic():
 
 def test_partial_replay_is_not_guaranteed_to_match_session_tail():
     full = dogdb.wrap(
-        _raw(),
+        raw_three_row_connection(),
         seed=42,
         session_id="partial-replay",
         faults={"ECHO": 1},
@@ -230,7 +233,7 @@ def test_partial_replay_is_not_guaranteed_to_match_session_tail():
     full_tail = full.dolly.log()[-10:]
 
     partial = dogdb.wrap(
-        _raw(),
+        raw_three_row_connection(),
         seed=42,
         session_id="partial-replay",
         faults={"ECHO": 1},
@@ -243,7 +246,7 @@ def test_partial_replay_is_not_guaranteed_to_match_session_tail():
 
 
 def test_mood_disabled_has_no_clock_or_mood_events():
-    conn = dogdb.wrap(_raw(), seed=42, faults={"ECHO": 1})
+    conn = dogdb.wrap(raw_three_row_connection(), seed=42, faults={"ECHO": 1})
     conn.execute("select id from t order by id").fetchall()
     assert conn._mood is None
     assert all(event.event_type != "mood_changed" for event in conn.dolly.log())

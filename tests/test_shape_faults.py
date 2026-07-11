@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-import sqlite3
-
 import dogdb
 import pytest
+
+from conftest import raw_integer_connection
 
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.sql import classify_sql
 
 
-def _raw(rows: int = 20) -> sqlite3.Connection:
-    raw = sqlite3.connect(":memory:")
-    raw.execute("create table t(id integer)")
-    raw.executemany("insert into t values (?)", [(index,) for index in range(rows)])
-    return raw
+def _raw(rows: int = 20):
+    return raw_integer_connection(rows)
 
 
 def test_echo_duplicates_derived_row_immediately_without_losing_rows():

@@ -10,6 +10,7 @@ from typing import Any
 
 from dogdb.core.decision import POLICY_VERSION, DecisionEngine
 from dogdb.core.faults import KNOWN_FAULTS
+from dogdb.core.validation import require_positive_int
 
 
 MOODS = ("CALM", "SLEEPY", "ZOOMY")
@@ -110,12 +111,7 @@ def parse_mood_config(setting: bool | Mapping[str, Any] | None) -> MoodConfig | 
         return None
 
     epoch_length = value.get("epoch_length", 10)
-    if (
-        isinstance(epoch_length, bool)
-        or not isinstance(epoch_length, int)
-        or epoch_length < 1
-    ):
-        raise ValueError("mood.epoch_length must be a positive integer")
+    epoch_length = require_positive_int(epoch_length, "mood.epoch_length")
 
     multipliers = {
         state: {fault: float(multiplier) for fault, multiplier in defaults.items()}

@@ -5,6 +5,8 @@ import sqlite3
 import dogdb
 
 from dogdb.core.fingerprints import template_fingerprint
+from dogdb.core.models import Decision, LogicalResult
+from dogdb.core.stale_cache import StaleReadCache
 
 
 def _raw(secret: str = "first-secret") -> sqlite3.Connection:
@@ -93,6 +95,25 @@ def test_oversized_result_is_not_cached():
     conn = dogdb.wrap(raw, seed=42, faults={"OLD_BONE": 1}, max_rows=2)
     conn.execute("select id from t").fetchall()
     assert conn._stale_cache.entries() == []
+
+
+def test_oversized_missing_keys_do_not_accumulate_empty_history_entries():
+    cache = StaleReadCache(include_params=False, max_rows=1)
+    oversized = LogicalResult(["id"], [(1,), (2,)], 2)
+
+    for occurrence in range(100):
+        decision = Decision(
+            template_fingerprint=f"sha256:missing-{occurrence}",
+            parameter_fingerprint="hmac-sha256:ignored",
+            occurrence=occurrence,
+            phase="on_result",
+            decision_key=f"sha256:decision-{occurrence}",
+        )
+        assert cache.history(decision) == []
+        assert cache.add(decision, oversized) is False
+
+    assert cache.entries() == []
+    assert len(cache._by_key) == 0
 
 
 def test_cached_and_corrupted_values_never_appear_in_log(tmp_path):

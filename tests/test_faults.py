@@ -6,13 +6,11 @@ import pytest
 
 import dogdb
 from dogdb import DogDBError, DollyIgnoredError, DollyStashedError
+from conftest import raw_integer_connection
 
 
 def _raw(rows: int = 5) -> sqlite3.Connection:
-    raw = sqlite3.connect(":memory:")
-    raw.execute("create table t(id integer)")
-    raw.executemany("insert into t values (?)", [(index,) for index in range(rows)])
-    return raw
+    return raw_integer_connection(rows)
 
 
 def test_stash_missing_removes_one_row_and_records_it():

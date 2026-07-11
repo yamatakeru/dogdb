@@ -61,4 +61,4 @@
 - [x] 8.2 `docs/orphan-write-investigation.md` を執筆する（NO_DROPの書き込み拡張の安全条件調査。実装可否の結論を明記し、実装しない結論も可）
 - [x] 8.3 READMEと `examples/` を更新する（新障害の1個ずつ足す導線、mood・auto_return・OLD_BONEのopt-in例、no-op clockのテスト例）
 - [x] 8.4 検証: `openspec validate expand-dolly-faults`、`uv run pytest` 全通過、examplesの実行確認（`uv run python examples/*.py`）
-- [ ] 8.5 CodeRabbitレビューを実施し指摘に対応する（AGENTS.md準拠、simplify検討を含む）
+- [x] 8.5 CodeRabbitレビューを実施し指摘に対応する（AGENTS.md準拠、simplify検討を含む）

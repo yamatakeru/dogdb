@@ -30,12 +30,32 @@ class Event:
         if not isinstance(value, dict):
             raise ValueError("event must be a JSON object")
         version = value.get("schema_version")
+        if type(version) is not int:
+            raise ValueError("schema_version must be an integer")
         if version not in {1, 2}:
             raise ValueError(f"unsupported schema_version {version!r}")
         required = _required_fields(version, value.get("event_type"))
         missing = required - value.keys()
         if missing:
             raise ValueError(f"missing required fields: {', '.join(sorted(missing))}")
+        null_fields = {field for field in required if value[field] is None}
+        if null_fields:
+            raise ValueError(
+                f"required fields must not be null: {', '.join(sorted(null_fields))}"
+            )
+        for field in _STRING_FIELDS:
+            field_value = value.get(field)
+            if field_value is not None and not isinstance(field_value, str):
+                raise ValueError(f"{field} must be a string")
+        seq = value["seq"]
+        if type(seq) is not int:
+            raise ValueError("seq must be an integer")
+        occurrence = value.get("occurrence")
+        if occurrence is not None and type(occurrence) is not int:
+            raise ValueError("occurrence must be an integer")
+        details = value.get("details")
+        if details is not None and not isinstance(details, dict):
+            raise ValueError("details must be an object")
         return cls(
             **{
                 field: value[field]
@@ -46,8 +66,28 @@ class Event:
 
 
 _CORE_FIELDS = {"schema_version", "event_id", "session_id", "seq", "event_type"}
+_STRING_FIELDS = {
+    "event_id",
+    "session_id",
+    "event_type",
+    "fault",
+    "phase",
+    "template_fingerprint",
+    "parameter_fingerprint",
+    "decision_key",
+    "outcome",
+}
 _V1_FIELDS = _CORE_FIELDS | {
     "fault",
+    "phase",
+    "template_fingerprint",
+    "parameter_fingerprint",
+    "occurrence",
+    "decision_key",
+    "outcome",
+    "details",
+}
+_V2_CONTEXT_FIELDS = _CORE_FIELDS | {
     "phase",
     "template_fingerprint",
     "parameter_fingerprint",
@@ -60,26 +100,8 @@ _V2_FIELDS = {
     "fault_injected": _V1_FIELDS,
     "treasure_returned": _V1_FIELDS,
     "mood_changed": _CORE_FIELDS | {"details"},
-    "limit_exceeded": _CORE_FIELDS
-    | {
-        "phase",
-        "template_fingerprint",
-        "parameter_fingerprint",
-        "occurrence",
-        "decision_key",
-        "outcome",
-        "details",
-    },
-    "decision_evaluated": _CORE_FIELDS
-    | {
-        "phase",
-        "template_fingerprint",
-        "parameter_fingerprint",
-        "occurrence",
-        "decision_key",
-        "outcome",
-        "details",
-    },
+    "limit_exceeded": _V2_CONTEXT_FIELDS,
+    "decision_evaluated": _V2_CONTEXT_FIELDS,
 }
 
 
@@ -122,6 +144,11 @@ class EventLog:
                 }
                 stream.write(json.dumps(payload, separators=(",", ":")) + "\n")
         return event
+
+    def next_seq(self) -> int:
+        """Return the sequence number that the next append will assign."""
+
+        return self._seq + 1
 
     def events(self) -> list[Event]:
         if self.path is None:

@@ -1,22 +1,14 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-
 import dogdb
+
+from conftest import raw_three_row_connection
 
 from dogdb.core.fingerprints import template_fingerprint
 
-
-def _raw() -> sqlite3.Connection:
-    raw = sqlite3.connect(":memory:")
-    raw.execute("create table t(id integer)")
-    raw.executemany("insert into t values (?)", [(1,), (2,), (3,)])
-    return raw
-
-
 def test_stats_report_anonymous_classification_and_interventions():
-    conn = dogdb.wrap(_raw(), seed=42, faults={"ECHO": 1})
+    conn = dogdb.wrap(raw_three_row_connection(), seed=42, faults={"ECHO": 1})
     select_sql = "select id from t order by id"
     unknown_sql = "with values_cte as (select 1) select * from values_cte"
     conn.execute(select_sql).fetchall()
@@ -40,7 +32,7 @@ def test_stats_report_anonymous_classification_and_interventions():
 
 
 def test_stats_count_sticky_stash_as_intervention_each_time():
-    conn = dogdb.wrap(_raw(), seed=42, faults={"STASH": 1})
+    conn = dogdb.wrap(raw_three_row_connection(), seed=42, faults={"STASH": 1})
     sql = "select id from t order by id"
     for _ in range(4):
         conn.execute(sql).fetchall()
@@ -54,7 +46,7 @@ def test_stats_count_sticky_stash_as_intervention_each_time():
 
 def test_return_events_do_not_increment_query_interventions():
     conn = dogdb.wrap(
-        _raw(), seed=42, faults={"STASH": 1}, auto_return=(1, 1)
+        raw_three_row_connection(), seed=42, faults={"STASH": 1}, auto_return=(1, 1)
     )
     sql = "select id from t order by id"
     conn.execute(sql).fetchall()
@@ -66,7 +58,7 @@ def test_return_events_do_not_increment_query_interventions():
 
 
 def test_stats_contain_no_raw_sql_or_parameters():
-    conn = dogdb.wrap(_raw(), seed=42, faults={"ECHO": 1})
+    conn = dogdb.wrap(raw_three_row_connection(), seed=42, faults={"ECHO": 1})
     sql = "select id from t where ? = 'raw-sql-secret'"
     parameter = "raw-parameter-secret"
     conn.execute(sql, (parameter,)).fetchall()
@@ -78,7 +70,7 @@ def test_stats_contain_no_raw_sql_or_parameters():
 
 
 def test_stats_snapshot_is_detached_from_internal_state():
-    conn = dogdb.wrap(_raw(), seed=42)
+    conn = dogdb.wrap(raw_three_row_connection(), seed=42)
     conn.execute("select id from t").fetchall()
     snapshot = conn.dolly.stats()
     snapshot["totals"]["select"] = 999

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from dogdb.core.decision import DecisionEngine
+from dogdb.core.validation import require_positive_int
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +57,7 @@ def parse_auto_return_config(
     if setting is None or setting is False:
         return None
     if setting is True:
-        minimum, maximum = 1, 10
+        return AutoReturnConfig()
     elif isinstance(setting, Mapping):
         unknown = set(setting) - {"enabled", "min_operations", "max_operations"}
         if unknown:
@@ -76,11 +77,8 @@ def parse_auto_return_config(
     else:
         raise ValueError("auto_return must be a boolean, mapping, or two-item range")
 
-    if any(
-        isinstance(value, bool) or not isinstance(value, int) or value < 1
-        for value in (minimum, maximum)
-    ):
-        raise ValueError("auto_return bounds must be positive integers")
+    minimum = require_positive_int(minimum, "auto_return bounds")
+    maximum = require_positive_int(maximum, "auto_return bounds")
     if minimum > maximum:
         raise ValueError("auto_return minimum must not exceed maximum")
     return AutoReturnConfig(minimum, maximum)

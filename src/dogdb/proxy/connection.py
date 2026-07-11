@@ -53,7 +53,7 @@ class DollyNamespace:
         return returned
 
     def _log_return(self, treasure: Treasure, *, phase: str = "manual_return") -> None:
-        seq = len(self._proxy._events.events()) + 1
+        seq = self._proxy._events.next_seq()
         tag = f"event:{seq}:RETURN"
         event_id = (
             self._proxy._decisions.legacy_id(treasure.decision_key, tag)
@@ -186,7 +186,7 @@ class DBAPIProxy:
         assert self._mood.tick == self._logical_tick
         if transition is None:
             return
-        seq = len(self._events.events()) + 1
+        seq = self._events.next_seq()
         self._events.append(
             event_id=self._decisions.deterministic_id(
                 transition.derivation_key, f"event:{seq}:MOOD"

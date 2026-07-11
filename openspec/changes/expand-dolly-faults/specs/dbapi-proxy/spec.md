@@ -7,7 +7,7 @@
 
 #### Scenario: 旧設定のままなら旧挙動
 - **WHEN** MVP時代と同じ引数（seed・session_id・faults）だけで `wrap()` を呼ぶ
-- **THEN** 追加機能はすべて無効で、イベントログは本change導入前の実装と一致する
+- **THEN** 追加機能はすべて無効で、実行結果・イベントの種類・順序・既存フィールドの値は本change導入前の実装と一致する。唯一の意図的なwire-level差分は `schema_version` が `2` になることである
 
 #### Scenario: 未知の障害名は拒否する
 - **WHEN** `faults={"ZOOMIES": 1}` のように未定義の障害名を渡す
