@@ -1,0 +1,31 @@
+schema: spec-driven
+
+context: |
+  DogDB — Sometimes your data has gone to the doghouse.
+  今後作成する change artifacts と current specs は日本語を基本言語とする。
+  OpenSpec の構造語（Requirement, Scenario, WHEN, THEN, SHALL, MUST など）は validation と可読性のため英語表記を維持する。
+
+rules:
+  proposal:
+    - 日本語で記述する。
+    - Why, What Changes, Capabilities, Impact を含める。
+    - scope と non-goals を曖昧にしない。
+
+  design:
+    - 日本語で記述する。
+    - Context, Goals / Non-Goals, Decisions, Risks / Trade-offs, Migration Plan, Open Questions を必要に応じて含める。
+    - 決定事項、代替案、未確定の仮説を区別する。
+    - production/dev/local の扱いが変わる場合は明示する。
+
+  tasks:
+    - 日本語で記述する。
+    - 実装、検証、ドキュメント更新を分けてチェック可能な粒度にする。
+    - 検証タスクには実行するコマンドまたは確認対象を含める。
+    - tasksでは実装作業とchange配下の更新に限定し、openspec/specs/配下のmain spec更新はsync/archiveフェーズに委ねる
+
+  spec:
+    - 日本語で記述する。
+    - Requirement と Scenario の構造は OpenSpec 形式を維持する。
+    - Requirement 本文には SHALL または MUST を含める。
+    - Scenario は WHEN / THEN を使って観察可能な振る舞いとして書く。
+    - 実装手順ではなく、システムが満たすべき振る舞いを書く。
