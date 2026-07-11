@@ -81,3 +81,21 @@ def test_corrupt_json_line_is_skipped_with_warning(tmp_path):
         events = read_events(path)
     assert len(events) == 1
     assert REQUIRED == set(asdict(events[0]))
+
+
+def test_invalid_utf8_line_is_skipped_with_warning(tmp_path):
+    path = tmp_path / "events.jsonl"
+    conn = _connection(path)
+    conn.execute("select id from t").fetchall()
+    conn.execute("select secret from t").fetchall()
+    expected_fingerprints = [
+        event.template_fingerprint for event in conn.dolly.log()
+    ]
+    valid_lines = path.read_bytes().splitlines(keepends=True)
+    path.write_bytes(valid_lines[0] + b"\xff\xfe corrupt\n" + valid_lines[1])
+
+    with pytest.warns(RuntimeWarning, match="corrupt DogDB event"):
+        events = read_events(path)
+
+    assert len(events) == 2
+    assert [event.template_fingerprint for event in events] == expected_fingerprints

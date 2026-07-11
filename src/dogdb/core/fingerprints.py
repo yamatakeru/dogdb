@@ -7,7 +7,10 @@ import hmac
 import json
 import re
 from collections.abc import Sequence
+from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 
 _WHITESPACE = re.compile(r"\s+")
@@ -25,8 +28,15 @@ def template_fingerprint(sql: str) -> str:
 
 
 def _json_default(value: Any) -> dict[str, str]:
+    value_type = type(value)
+    qualified_name = f"{value_type.__module__}.{value_type.__qualname__}"
+    if value_type not in (bytes, bytearray, date, time, datetime, Decimal, UUID):
+        raise TypeError(
+            f"unsupported parameter type {qualified_name}; only values with stable "
+            "canonical text representations are accepted"
+        )
     return {
-        "type": f"{type(value).__module__}.{type(value).__qualname__}",
+        "type": qualified_name,
         "value": str(value),
     }
 

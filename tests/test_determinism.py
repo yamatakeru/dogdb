@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import datetime
 import sqlite3
 import uuid
+from decimal import Decimal
 
 import dogdb
+import pytest
+
+from dogdb.core.fingerprints import parameter_fingerprint
 
 
 def _database() -> sqlite3.Connection:
@@ -76,3 +81,27 @@ def test_seed_separates_decision_keys():
         conn.execute("select id from t").fetchall()
         keys.append(conn.dolly.log()[0].decision_key)
     assert keys[0] != keys[1]
+
+
+def test_unstable_parameter_type_is_rejected_without_event():
+    class UnstableParameter:
+        pass
+
+    conn = dogdb.wrap(_database(), seed=42, faults={"SHUFFLE": 1})
+
+    with pytest.raises(TypeError, match="UnstableParameter.*stable canonical text"):
+        conn.execute("select id from t where ? is not null", (UnstableParameter(),))
+
+    assert conn.dolly.log() == []
+
+
+def test_stable_non_json_parameters_have_deterministic_fingerprint():
+    params = (
+        datetime.datetime(2026, 7, 11, 12, 34, 56),
+        Decimal("123.450"),
+        uuid.UUID("12345678-1234-5678-1234-567812345678"),
+        b"\x00\xff",
+    )
+    key = b"fixed-key"
+
+    assert parameter_fingerprint(params, key) == parameter_fingerprint(params, key)

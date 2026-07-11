@@ -71,11 +71,11 @@ def read_events(path: str | Path) -> list[Event]:
     file_path = Path(path)
     if not file_path.exists():
         return events
-    with file_path.open(encoding="utf-8") as stream:
+    with file_path.open("rb") as stream:
         for line_number, line in enumerate(stream, 1):
             try:
-                events.append(Event.from_dict(json.loads(line)))
-            except (json.JSONDecodeError, KeyError, TypeError) as error:
+                events.append(Event.from_dict(json.loads(line.decode("utf-8"))))
+            except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as error:
                 warnings.warn(
                     f"skipping corrupt DogDB event at line {line_number}: {error}",
                     RuntimeWarning,

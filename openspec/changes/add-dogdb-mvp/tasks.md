@@ -51,3 +51,10 @@
 - [x] 6.4 CodeRabbitによるcode-reviewを実施し、指摘に対応する（AGENTS.md要件）
 - [x] 6.5 simplifyレビューを実施し、適用可能な簡素化を反映する（AGENTS.md要件）
 - [x] 6.6 実装知見（SQL分類器の実介入率、アダプタ差分、メモリ上限の妥当値）を記録し、第二起票 `expand-dolly-faults` への反映点を洗い出す
+
+## 7. PRレビュー対応（CodeRabbit PR #1）
+
+- [x] 7.1 `read_events` をバイナリ読み込み＋行単位デコードに変更し、不正UTF-8行を警告付きスキップにする（`UnicodeDecodeError` を行単位の例外処理に含める）。不正UTF-8行のテストを追加。確認: `uv run pytest tests/test_event_log.py`
+- [x] 7.2 `parameter_fingerprint` のエンコードを改修する: 安定表現を持つ型（JSONネイティブ、bytes/datetime/Decimal/UUID等）のみ受理し、アドレス依存reprへフォールバックする型は実行前に `TypeError` で拒否する。決定性テストを追加。確認: `uv run pytest tests/test_determinism.py`
+- [x] 7.3 `HouseLedger.add` に `treasure_id` 重複拒否ガードを追加する（防御的コーディング、既存挙動は不変）
+- [x] 7.4 全テスト通過を確認する。確認: `uv run pytest`

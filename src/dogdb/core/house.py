@@ -37,7 +37,11 @@ class HouseLedger:
 
     def add(self, treasure: Treasure) -> bool:
         location = (treasure.template_fingerprint, treasure.row_index)
-        if location in self._by_location or len(self._treasures) >= self.capacity:
+        if (
+            treasure.treasure_id in self._treasures
+            or location in self._by_location
+            or len(self._treasures) >= self.capacity
+        ):
             return False
         self._treasures[treasure.treasure_id] = treasure
         self._by_location[location] = treasure.treasure_id
