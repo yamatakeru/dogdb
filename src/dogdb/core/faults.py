@@ -113,10 +113,8 @@ class FaultEngine:
         )
 
         # Failure injection outranks silent mutation.
-        if stash_fires and self.policy.stash_mode == "error" and result.rows:
-            return self._stash(decision, result, raises=True)
         if stash_fires and result.rows:
-            return self._stash(decision, result, raises=False)
+            return self._stash(decision, result, raises=self.policy.stash_mode == "error")
         if shuffle_fires and len(result.rows) > 1:
             return self._shuffle(decision, result)
         return result
