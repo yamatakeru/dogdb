@@ -20,6 +20,17 @@
 - **WHEN** `include_params=True` で、同一テンプレートに異なるパラメータを与える
 - **THEN** 両者の `decision_key` は異なる値になる
 
+### Requirement: パラメータfingerprintの入力域
+`parameter_fingerprint` の計算は、安定した正規テキスト表現を持つ値のみを受け付けなければならない（MUST）。JSONネイティブ値（null・真偽値・数値・文字列）、および安定した文字列表現を持つ非ネイティブ値（bytes・datetime・Decimal・UUID等）は決定的にエンコードされる（SHALL）。オブジェクト識別子（メモリアドレス等）に依存する表現しか得られない値は、実行前に `TypeError` で拒否されなければならず（MUST）、イベントを記録してはならない（MUST NOT）。この制限は `include_params` の設定に関わらず適用される — `parameter_fingerprint` は全イベントの必須フィールドとして記録されるため、不安定なエンコードは「同一入力列は同一イベント列」の保証を破るからである。
+
+#### Scenario: 不安定な表現しか持たない値は拒否される
+- **WHEN** `__repr__` を定義しない任意のオブジェクトをバインドパラメータとして渡す
+- **THEN** 実行は `TypeError` で拒否され、イベントは記録されない
+
+#### Scenario: 安定表現を持つ標準型は決定的に処理される
+- **WHEN** datetime・Decimal・UUID・bytes を含むパラメータで同一クエリを2回実行する
+- **THEN** 両実行のイベントの `parameter_fingerprint` は一致する
+
 ### Requirement: 出現回数の管理
 同一 `template_fingerprint` の実行はセッション内で出現回数（occurrence）をカウントし、決定キーとイベントに記録しなければならない（MUST）。
 

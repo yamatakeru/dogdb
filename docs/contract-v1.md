@@ -30,7 +30,7 @@ SQL template の v1 正規化は次の順序で行う。
 
 これは SQL 構文正規化ではない。コメント、リテラル、placeholder 方言は書き換えない。
 
-位置パラメータは順序を保つ JSON array として、空白なし・UTF-8 で直列化する。JSON ネイティブでない値は `{ "type": fully-qualified-type, "value": string-value }` とする。セッション固有鍵による HMAC-SHA-256 を取り、`hmac-sha256:<lowercase hex>` とする。生パラメータをイベントへ記録してはならない。
+位置パラメータは順序を保つ JSON array として、空白なし・UTF-8 で直列化する。JSON ネイティブでない値は `{ "type": fully-qualified-type, "value": string-value }` とする。`string-value` は値の安定した正規テキスト表現でなければならず（MUST）、オブジェクト識別子（メモリアドレス等）に依存する表現しか得られない値は直列化を拒否しエラーとしなければならない（MUST）。`type` タグは実装内部の型名であり、クロス言語での一致は保証しない。セッション固有鍵による HMAC-SHA-256 を取り、`hmac-sha256:<lowercase hex>` とする。生パラメータをイベントへ記録してはならない。
 
 ## イベント schema v1
 

@@ -107,11 +107,11 @@ DogDBError(Exception)          # 基底。機械可読属性を持つ
  "fault": "STASH", "phase": "on_result",
  "template_fingerprint": "sha256:...", "parameter_fingerprint": "hmac:...",
  "occurrence": 3, "decision_key": "sha256:...",
- "outcome": "rows_hidden", "details": {"row_indices": [7]}}
+ "outcome": "rows_hidden", "details": {"row_indices": [7], "treasure_id": "..."}}
 ```
 
 - **決定**: 生SQL・生パラメータ・生の行値は既定で記録しない。`seq`はセッション内単調。MVPは単一writer契約（複数プロセス追記は非対応と明記）。wall-clock `ts`は診断用に記録してよいがreplay判定に使わない。STASHされた行の値はログではなく**houseストア（メモリ内）**に保持する。
-- **理由**: ログが機密データの複製場所になる問題（worker-1指摘）の回避。event sourcingの真実はイベント列で、houseはその射影。
+- **理由**: ログが機密データの複製場所になる問題（worker-1指摘）の回避。event sourcingの真実はイベント列で、houseはその射影。ただし射影の対象は宝物の帰属メタデータ（treasure_id・template_fingerprint・行位置・イベントID）のみであり、行値はログに存在しないため復元できない。行値の復元やプロセス再起動後の`return_treasure`は意図的にスコープ外（dog-house specに明記）。
 - **代替**: 全decisionイベント（非発火含む）の記録 → 既定は発火のみ、debugモードで拡張（第二起票扱いでよい）。
 
 ### D7. SQL分類は保守的に
@@ -152,4 +152,4 @@ DogDBError(Exception)          # 基底。機械可読属性を持つ
 - DuckDB Python APIとsqlite3の`cursor.description`差分の実測（アダプタ正規化コードの実量）
 - 保守的SQL分類器の実介入率（SELECT判定の再現率）
 - `LogicalResult`のメモリ上限の妥当な既定値
-- house再構築テスト（ログ→射影一致）の粒度: イベント全種を対象にするか、STASH/RETURNのみか
+- house再構築テスト（ログ→射影一致）の粒度: イベント全種を対象にするか、STASH/RETURNのみか（解決済み: dog-house specのScenario「ログからハウスを再建する」でSTASH/返却イベント列からの帰属フィールド一致に確定）
