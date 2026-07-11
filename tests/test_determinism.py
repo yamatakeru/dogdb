@@ -89,7 +89,7 @@ def test_unstable_parameter_type_is_rejected_without_event():
 
     conn = dogdb.wrap(_database(), seed=42, faults={"SHUFFLE": 1})
 
-    with pytest.raises(TypeError, match="UnstableParameter.*stable canonical text"):
+    with pytest.raises(TypeError, match=r"UnstableParameter.*stable canonical text"):
         conn.execute("select id from t where ? is not null", (UnstableParameter(),))
 
     assert conn.dolly.log() == []

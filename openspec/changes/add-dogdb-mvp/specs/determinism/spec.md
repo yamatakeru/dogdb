@@ -21,7 +21,7 @@
 - **THEN** 両者の `decision_key` は異なる値になる
 
 ### Requirement: パラメータfingerprintの入力域
-`parameter_fingerprint` の計算は、安定した正規テキスト表現を持つ値のみを受け付けなければならない（MUST）。JSONネイティブ値（null・真偽値・数値・文字列）、および安定した文字列表現を持つ非ネイティブ値（bytes・datetime・Decimal・UUID等）は決定的にエンコードされる（SHALL）。オブジェクト識別子（メモリアドレス等）に依存する表現しか得られない値は、実行前に `TypeError` で拒否されなければならず（MUST）、イベントを記録してはならない（MUST NOT）。この制限は `include_params` の設定に関わらず適用される — `parameter_fingerprint` は全イベントの必須フィールドとして記録されるため、不安定なエンコードは「同一入力列は同一イベント列」の保証を破るからである。
+`parameter_fingerprint` の計算は、次の閉じた許可リストの値のみを受け付けなければならない（MUST）: JSONネイティブ値（null・真偽値・数値・文字列）、および厳密な型一致による `bytes`・`bytearray`・`datetime.date`・`datetime.time`・`datetime.datetime`・`Decimal`・`UUID`。これらは決定的にエンコードされる（SHALL）。サブクラスや独自型を含む上記以外の値は、たとえ安定した表現を持っていても、実行前に `TypeError` で拒否されなければならず（MUST）、イベントを記録してはならない（MUST NOT）。この制限は `include_params` の設定に関わらず適用される — `parameter_fingerprint` は全イベントの必須フィールドとして記録されるため、不安定なエンコードは「同一入力列は同一イベント列」の保証を破るからである。
 
 #### Scenario: 不安定な表現しか持たない値は拒否される
 - **WHEN** `__repr__` を定義しない任意のオブジェクトをバインドパラメータとして渡す
