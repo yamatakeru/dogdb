@@ -7,11 +7,15 @@
 ## Requirements
 
 ### Requirement: 決定キーの純粋性
-障害の発火判定と内容は、既定では `(policy_version, seed, session_id, template_fingerprint, occurrence, phase)` の純粋関数でなければならない（MUST）。`include_params=True` の場合に限り、HMAC化されたパラメータfingerprintがこの決定入力の末尾に追加される（SHALL）。いずれの構成でも決定は入力に対する純粋関数であり、wall-clock時刻、OS乱数、Python組み込み `hash()` を決定に使ってはならない（MUST NOT）。
+障害の発火判定と内容は、既定では `(policy_version, seed, session_id, template_fingerprint, occurrence, phase)` の純粋関数でなければならない（MUST）。`include_params=True` の場合に限り、HMAC化されたパラメータfingerprintがこの決定入力の末尾に追加される（SHALL）。mood・論理時計・house・stale-read-cacheなどのセッション状態が決定に参加する場合、その状態は `(seed, session_id, 正規化済み設定, セッション開始からの入力列)` の純粋関数でなければならない（MUST）。いずれの構成でも、wall-clock時刻、OS乱数、Python組み込み `hash()` を決定に使ってはならない（MUST NOT）。
 
 #### Scenario: 同一入力列は同一イベント列
 - **WHEN** 同一seed・同一session_id指定・同一クエリ列で2回実行する
 - **THEN** 2つのイベントログは、診断用タイムスタンプを除く全フィールドで一致する
+
+#### Scenario: 状態系を全部有効にしても再現する
+- **WHEN** mood・自動返却・OLD_BONEをすべて有効にした同一設定・同一入力列で2回実行する
+- **THEN** mood遷移、自動返却のタイミング、stale readの参照先を含むイベント列が完全に一致する
 
 ### Requirement: パラメータの既定除外とopt-in
 既定では、同一SQLテンプレートに異なるバインドパラメータを与えても、同一出現回数における障害決定は同一でなければならない（SHALL）。`include_params=True` を指定した場合に限り、HMAC化されたパラメータfingerprintが決定キーに参加しなければならない（SHALL）。
@@ -48,3 +52,17 @@
 #### Scenario: seedを変えれば別の犬生
 - **WHEN** seed=42 と seed=43 で同一クエリ列を実行する
 - **THEN** 対応する操作の `decision_key` は互いに異なる
+
+### Requirement: 乱数導出のdomain separation
+決定キーから導出する値（発火判定、行位置、順列、遅延量、保持期間、stale参照先など）は、`SHA-256(decision_key ‖ ":" ‖ 用途タグ)` の形で用途ごとに分離されたハッシュから導出しなければならない（MUST）。用途タグの一覧は契約文書に列挙しなければならない（SHALL）。同一の導出値を複数の用途に流用してはならない（MUST NOT）。例外として、MVP由来のSTASH・SHUFFLE・IGNOREの既存導出は、v1の決定値とイベント列を維持するためv1互換の導出経路を保持しなければならず（SHALL）、この互換経路は当該3障害に閉じて契約文書に明記しなければならない（MUST）。
+
+#### Scenario: 障害ごとに別の導出値で判定される
+- **WHEN** 2つの障害に同じ重みを設定して同一操作を評価する
+- **THEN** 各障害の発火判定は互いに異なる用途タグ（`fire:<FAULT>`）から導出された別の値を使い、同一の導出値が複数の障害の判定に再利用されることはない
+
+### Requirement: 保証の単位はセッション先頭からの入力列
+決定性の保証は「セッション先頭からの同一の順序付き入力列と同一設定」に対して定義されなければならない（MUST）。途中の操作単体を切り出したreplay（部分replay）の一致は保証の対象外であることを文書化しなければならない（SHALL）。
+
+#### Scenario: 途中から再開しても同じにはならない
+- **WHEN** 20操作のセッションの後半10操作だけを新しいセッションとして実行する
+- **THEN** 論理時計とmood状態が異なるため、イベント列の一致は保証されない（これは仕様どおりの挙動である）
