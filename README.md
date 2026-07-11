@@ -4,8 +4,8 @@
 
 DogDB は DuckDB / SQLite の DB-API 接続を包み、SQL の意味論レベルで再現可能な障害を注入するテスト専用ツールです。犬のドリーが行をハウスへ持ち去ったり、並び順をかき回したり、リクエストを無視したりします。同じ seed・session・SQL 列なら同じ障害を再現できます。
 
-<!-- TODO: ユーザーがドリーの実写真を docs/assets/dolly.jpg に配置する。 -->
-![ドリー](docs/assets/dolly.jpg)
+<p align="center"><img src="docs/assets/dolly.png" alt="ゴミ箱の蓋から首が抜けなくなったドリー" width="380"></p>
+<p align="center"><em>ゴミ箱の蓋から首が抜けなくなったドリー。悪気はない。DogDB が注入する障害にも、悪気はない。</em></p>
 
 ## クイックスタート
 
