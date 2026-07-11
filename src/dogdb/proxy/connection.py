@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dogdb.adapters.duckdb import DuckDBAdapter
 from dogdb.adapters.sqlite import SQLiteAdapter
+from dogdb.core.auto_return import AutoReturnScheduler, parse_auto_return_config
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.event_log import Event, EventLog
-from dogdb.core.faults import FaultEngine, FaultPolicy
+from dogdb.core.faults import KNOWN_FAULTS, FaultEngine, FaultPolicy
 from dogdb.core.house import HouseLedger, Treasure
+from dogdb.core.fingerprints import template_fingerprint
 from dogdb.core.models import LogicalResult
+from dogdb.core.mood import MoodEngine, parse_mood_config
 from dogdb.core.sql import SQLKind, classify_sql
+from dogdb.core.stale_cache import StaleReadCache
+from dogdb.core.stats import StatsTracker
 
 
 class DollyNamespace:
@@ -27,7 +33,12 @@ class DollyNamespace:
     def log(self) -> list[Event]:
         return self._proxy._events.events()
 
+    def stats(self) -> dict[str, object]:
+        return self._proxy._stats.snapshot()
+
     def return_treasure(self, treasure_id: str) -> Treasure | None:
+        if self._proxy._auto_return is not None:
+            self._proxy._auto_return.cancel(treasure_id)
         treasure = self._proxy._house.return_treasure(treasure_id)
         if treasure is not None:
             self._log_return(treasure)
@@ -36,19 +47,24 @@ class DollyNamespace:
     def return_all(self) -> list[Treasure]:
         returned = self._proxy._house.return_all()
         for treasure in returned:
+            if self._proxy._auto_return is not None:
+                self._proxy._auto_return.cancel(treasure.treasure_id)
             self._log_return(treasure)
         return returned
 
-    def _log_return(self, treasure: Treasure) -> None:
-        seq = len(self._proxy._events.events()) + 1
-        event_id = self._proxy._decisions.deterministic_id(
-            treasure.decision_key, f"event:{seq}:RETURN"
+    def _log_return(self, treasure: Treasure, *, phase: str = "manual_return") -> None:
+        seq = self._proxy._events.next_seq()
+        tag = f"event:{seq}:RETURN"
+        event_id = (
+            self._proxy._decisions.legacy_id(treasure.decision_key, tag)
+            if phase == "manual_return"
+            else self._proxy._decisions.deterministic_id(treasure.decision_key, tag)
         )
         self._proxy._events.append(
             event_id=event_id,
             event_type="treasure_returned",
             fault="STASH",
-            phase="manual_return",
+            phase=phase,
             template_fingerprint=treasure.template_fingerprint,
             parameter_fingerprint=treasure.parameter_fingerprint,
             occurrence=treasure.occurrence,
@@ -71,6 +87,14 @@ class DBAPIProxy:
         log_path: str | Path | None,
         max_rows: int,
         house_limit: int,
+        only_tables: frozenset[str] | None,
+        exclude_tables: frozenset[str] | None,
+        debug: bool,
+        clock: Callable[[float], None],
+        mood: MoodEngine | None,
+        auto_return: AutoReturnScheduler | None,
+        stale_cache: StaleReadCache | None,
+        stats: StatsTracker,
     ) -> None:
         self._connection = connection
         self._adapter = adapter
@@ -80,14 +104,34 @@ class DBAPIProxy:
         self._events = EventLog(session_id, log_path)
         self._house = HouseLedger(house_limit)
         self._faults = FaultEngine(
-            self._decisions, self._events, self._house, policy, max_rows
+            self._decisions,
+            self._events,
+            self._house,
+            policy,
+            max_rows,
+            debug,
+            clock,
+            mood,
+            auto_return,
+            stale_cache,
+            stats.record_intervention,
         )
+        self._mood = mood
+        self._auto_return = auto_return
+        self._stale_cache = stale_cache
+        self._stats = stats
+        self._logical_tick = 0 if mood is not None or auto_return is not None else None
+        self._only_tables = only_tables
+        self._exclude_tables = exclude_tables
         self._result = LogicalResult([], [], -1)
         self._offset = 0
         self.dolly = DollyNamespace(self)
 
     def execute(self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None) -> DBAPIProxy:
+        self._begin_operation()
         classification = classify_sql(sql)
+        fingerprint = template_fingerprint(sql)
+        self._stats.record_classification(fingerprint, classification.kind)
         if (
             isinstance(params, Mapping)
             or classification.kind is SQLKind.UNKNOWN
@@ -104,7 +148,8 @@ class DBAPIProxy:
             occurrence=occurrence,
             phase="before_execute",
         )
-        self._faults.before_execute(before)
+        scoped = self._scope_applies(classification.tables)
+        before_consumed = self._faults.before_execute(before) if scoped else False
         result = self._adapter.execute(sql, params)
         on_result = self._decisions.decide(
             template=template,
@@ -112,11 +157,57 @@ class DBAPIProxy:
             occurrence=occurrence,
             phase="on_result",
         )
-        self._result = self._faults.on_result(on_result, classification, result)
+        self._result = (
+            self._faults.on_result(on_result, classification, result)
+            if scoped and not before_consumed
+            else result
+        )
+        if (
+            self._stale_cache is not None
+            and scoped
+            and classification.kind is SQLKind.SELECT
+        ):
+            self._stale_cache.add(on_result, self._result)
         self._offset = 0
         return self
 
+    def _begin_operation(self) -> None:
+        if self._logical_tick is None:
+            return
+        self._logical_tick += 1
+        if self._auto_return is not None:
+            for treasure_id in self._auto_return.advance(self._logical_tick):
+                treasure = self._house.return_treasure(treasure_id)
+                if treasure is not None:
+                    self.dolly._log_return(treasure, phase="auto_return")
+        if self._mood is None:
+            return
+        transition = self._mood.advance()
+        assert self._mood.tick == self._logical_tick
+        if transition is None:
+            return
+        seq = self._events.next_seq()
+        self._events.append(
+            event_id=self._decisions.deterministic_id(
+                transition.derivation_key, f"event:{seq}:MOOD"
+            ),
+            event_type="mood_changed",
+            details={
+                "from": transition.previous,
+                "to": transition.current,
+                "tick": transition.tick,
+            },
+        )
+
+    def _scope_applies(self, tables: frozenset[str] | None) -> bool:
+        if self._only_tables is not None:
+            return tables is not None and bool(tables & self._only_tables)
+        if self._exclude_tables is not None:
+            return tables is None or not bool(tables & self._exclude_tables)
+        return True
+
     def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DBAPIProxy:
+        self._begin_operation()
         cursor = self._connection.executemany(sql, params)
         self._result = LogicalResult([], [], getattr(cursor, "rowcount", -1))
         self._offset = 0
@@ -191,21 +282,57 @@ def wrap(
     fault_probabilities: Mapping[str, float] | None = None,
     faults: Mapping[str, float] | None = None,
     stash_mode: str = "missing",
+    tail_chase_mode: str = "silent",
+    chew_profiles: Sequence[str] = (
+        "utf8_truncate",
+        "precision_loss",
+        "nullify",
+    ),
+    wrong_count_max_delta: int = 1,
+    sloth_max_delay_ms: int = 1_000,
+    clock: Callable[[float], None] = time.sleep,
+    mood: bool | Mapping[str, Any] | None = False,
+    auto_return: bool | Mapping[str, Any] | Sequence[int] | None = False,
     log_path: str | Path | None = None,
     event_log: str | Path | None = None,
     max_rows: int = 10_000,
     house_limit: int = 1_000,
+    only_tables: Sequence[str] | None = None,
+    exclude_tables: Sequence[str] | None = None,
+    debug: bool = False,
 ) -> DBAPIProxy:
-    probabilities = {"STASH": 0.0, "SHUFFLE": 0.0, "IGNORE": 0.0}
+    if only_tables is not None and exclude_tables is not None:
+        raise ValueError("only_tables and exclude_tables are mutually exclusive")
+    if not callable(clock):
+        raise ValueError("clock must be callable")
+    probabilities: dict[str, float] = {}
     supplied = fault_probabilities if fault_probabilities is not None else faults
     if supplied:
         probabilities.update({str(key).upper(): value for key, value in supplied.items()})
-    unknown = set(probabilities) - {"STASH", "SHUFFLE", "IGNORE"}
+    unknown = set(probabilities) - KNOWN_FAULTS
     if unknown:
         raise ValueError(f"unknown faults: {', '.join(sorted(unknown))}")
     if session_id is None:
         digest = hashlib.sha256(f"dogdb-session\0{seed}".encode()).hexdigest()[:24]
         session_id = f"session-{digest}"
+    mood_config = parse_mood_config(mood)
+    mood_engine = (
+        MoodEngine(seed=seed, session_id=session_id, config=mood_config)
+        if mood_config is not None
+        else None
+    )
+    auto_return_config = parse_auto_return_config(auto_return)
+    auto_return_scheduler = (
+        AutoReturnScheduler(auto_return_config)
+        if auto_return_config is not None
+        else None
+    )
+    stale_cache = (
+        StaleReadCache(include_params=include_params, max_rows=max_rows)
+        if probabilities.get("OLD_BONE", 0) > 0
+        else None
+    )
+    stats = StatsTracker()
     return DBAPIProxy(
         connection,
         _adapter_for(connection),
@@ -213,15 +340,34 @@ def wrap(
         session_id=session_id,
         include_params=include_params,
         policy=FaultPolicy(
-            stash=probabilities["STASH"],
-            shuffle=probabilities["SHUFFLE"],
-            ignore=probabilities["IGNORE"],
+            probabilities=probabilities,
             stash_mode=stash_mode,
+            tail_chase_mode=tail_chase_mode,
+            chew_profiles=tuple(chew_profiles),
+            wrong_count_max_delta=wrong_count_max_delta,
+            sloth_max_delay_ms=sloth_max_delay_ms,
         ),
         log_path=log_path if log_path is not None else event_log,
         max_rows=max_rows,
         house_limit=house_limit,
+        only_tables=_normalize_tables(only_tables),
+        exclude_tables=_normalize_tables(exclude_tables),
+        debug=debug,
+        clock=clock,
+        mood=mood_engine,
+        auto_return=auto_return_scheduler,
+        stale_cache=stale_cache,
+        stats=stats,
     )
+
+
+def _normalize_tables(tables: Sequence[str] | None) -> frozenset[str] | None:
+    if tables is None:
+        return None
+    normalized = frozenset(table.strip().lower() for table in tables)
+    if not all(normalized):
+        raise ValueError("table scope names must not be empty")
+    return normalized
 
 
 def connect(

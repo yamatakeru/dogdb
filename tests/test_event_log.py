@@ -34,13 +34,13 @@ def _connection(path=None):
     return dogdb.wrap(raw, seed=42, faults={"STASH": 1}, log_path=path)
 
 
-def test_stash_event_has_schema_v1_required_fields(tmp_path):
+def test_stash_event_has_schema_v2_and_v1_compatible_fields(tmp_path):
     path = tmp_path / "events.jsonl"
     conn = _connection(path)
     conn.execute("select id from t").fetchall()
     line = json.loads(path.read_text().splitlines()[0])
     assert REQUIRED <= line.keys()
-    assert line["schema_version"] == 1
+    assert line["schema_version"] == 2
     assert line["details"]["row_indices"]
 
 
@@ -99,3 +99,162 @@ def test_invalid_utf8_line_is_skipped_with_warning(tmp_path):
 
     assert len(events) == 2
     assert [event.template_fingerprint for event in events] == expected_fingerprints
+
+
+def test_v1_fixture_and_v2_append_are_read_together(tmp_path):
+    path = tmp_path / "mixed.jsonl"
+    fixture = {
+        "schema_version": 1,
+        "event_id": "legacy-event",
+        "session_id": "legacy-session",
+        "seq": 1,
+        "event_type": "fault_injected",
+        "fault": "IGNORE",
+        "phase": "before_execute",
+        "template_fingerprint": "sha256:legacy-template",
+        "parameter_fingerprint": "hmac-sha256:legacy-parameter",
+        "occurrence": 1,
+        "decision_key": "sha256:legacy-decision",
+        "outcome": "not_executed",
+        "details": {},
+    }
+    path.write_text(json.dumps(fixture) + "\n")
+    conn = _connection(path)
+    conn.execute("select id from t").fetchall()
+
+    events = read_events(path)
+
+    assert [event.schema_version for event in events] == [1, 2]
+    assert [event.session_id for event in events] == [
+        "legacy-session",
+        conn._events.session_id,
+    ]
+
+
+def test_unknown_schema_version_is_skipped_with_warning(tmp_path):
+    path = tmp_path / "unknown-version.jsonl"
+    valid = {
+        "schema_version": 1,
+        "event_id": "legacy-event",
+        "session_id": "legacy-session",
+        "seq": 1,
+        "event_type": "fault_injected",
+        "fault": "IGNORE",
+        "phase": "before_execute",
+        "template_fingerprint": "sha256:legacy-template",
+        "parameter_fingerprint": "hmac-sha256:legacy-parameter",
+        "occurrence": 1,
+        "decision_key": "sha256:legacy-decision",
+        "outcome": "not_executed",
+        "details": {},
+    }
+    unknown = {**valid, "schema_version": 99, "event_id": "future-event"}
+    path.write_text(json.dumps(valid) + "\n" + json.dumps(unknown) + "\n")
+
+    with pytest.warns(RuntimeWarning, match=r"unsupported schema_version 99"):
+        events = read_events(path)
+
+    assert [event.event_id for event in events] == ["legacy-event"]
+
+
+def test_invalid_required_field_types_are_skipped_without_losing_valid_rows(
+    tmp_path,
+):
+    path = tmp_path / "invalid-types.jsonl"
+    valid = {
+        "schema_version": 2,
+        "event_id": "valid-event",
+        "session_id": "session",
+        "seq": 1,
+        "event_type": "mood_changed",
+        "details": {"from": "CALM", "to": "SLEEPY", "tick": 10},
+    }
+    invalid = [
+        {**valid, "schema_version": True, "event_id": "bool-version"},
+        {**valid, "event_id": None, "seq": 2},
+        {**valid, "event_id": "string-seq", "seq": "3"},
+    ]
+    final = {**valid, "event_id": "final-event", "seq": 4}
+    path.write_text(
+        "\n".join(json.dumps(event) for event in [valid, *invalid, final]) + "\n"
+    )
+
+    with pytest.warns(RuntimeWarning, match="corrupt DogDB event") as warnings:
+        events = read_events(path)
+
+    assert len(warnings) == 3
+    assert [event.event_id for event in events] == ["valid-event", "final-event"]
+
+
+def test_schema_v2_mood_event_does_not_require_fingerprint_fields(tmp_path):
+    path = tmp_path / "mood.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "event_id": "mood-1",
+                "session_id": "mood-session",
+                "seq": 1,
+                "event_type": "mood_changed",
+                "details": {"from": "CALM", "to": "ZOOMY", "tick": 10},
+            }
+        )
+        + "\n"
+    )
+
+    event = read_events(path)[0]
+
+    assert event.event_type == "mood_changed"
+    assert event.template_fingerprint is None
+    assert event.details == {"from": "CALM", "to": "ZOOMY", "tick": 10}
+
+
+def test_non_object_json_line_is_skipped_with_warning(tmp_path):
+    path = tmp_path / "array.jsonl"
+    path.write_text("[]\n")
+    with pytest.warns(RuntimeWarning, match="event must be a JSON object"):
+        assert read_events(path) == []
+
+
+def test_limit_exceeded_event_records_metadata_without_rows(tmp_path):
+    path = tmp_path / "events.jsonl"
+    conn = dogdb.wrap(
+        sqlite3.connect(":memory:"),
+        seed=42,
+        faults={"STASH": 1},
+        max_rows=2,
+        log_path=path,
+    )
+    conn._connection.execute("create table t(id integer, secret text)")
+    secret = "never-log-this-row-value"
+    conn._connection.executemany(
+        "insert into t values (?, ?)", [(1, secret), (2, secret), (3, secret)]
+    )
+
+    rows = conn.execute("select id, secret from t").fetchall()
+    event = conn.dolly.log()[0]
+
+    assert len(rows) == 3
+    assert event.event_type == "limit_exceeded"
+    assert event.outcome == "fault_skipped"
+    assert event.details == {"limit": "max_rows", "configured": 2, "observed": 3}
+    assert secret not in path.read_text()
+
+
+def test_debug_records_non_firing_decisions_only_when_enabled():
+    quiet = dogdb.wrap(sqlite3.connect(":memory:"), seed=42)
+    quiet.execute("select 1 union all select 2").fetchall()
+    assert quiet.dolly.log() == []
+
+    debug = dogdb.wrap(sqlite3.connect(":memory:"), seed=42, debug=True)
+    debug.execute("select 1 union all select 2").fetchall()
+
+    events = debug.dolly.log()
+    assert [event.event_type for event in events] == [
+        "decision_evaluated",
+        "decision_evaluated",
+    ]
+    assert all(event.outcome == "not_injected" for event in events)
+    assert events[0].details == {
+        "faults": ["BARK", "GUARD_BOWL", "IGNORE", "SLOTH"]
+    }

@@ -1,0 +1,44 @@
+"""Anonymous SQL classification and intervention counters."""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import asdict, dataclass
+
+from dogdb.core.sql import SQLKind
+
+
+@dataclass(slots=True)
+class FingerprintStats:
+    select: int = 0
+    unknown: int = 0
+    interventions: int = 0
+
+
+class StatsTracker:
+    def __init__(self) -> None:
+        self._values: defaultdict[str, FingerprintStats] = defaultdict(
+            FingerprintStats
+        )
+
+    def record_classification(self, fingerprint: str, kind: SQLKind) -> None:
+        if kind is SQLKind.SELECT:
+            self._values[fingerprint].select += 1
+        elif kind is SQLKind.UNKNOWN:
+            self._values[fingerprint].unknown += 1
+
+    def record_intervention(self, fingerprint: str) -> None:
+        self._values[fingerprint].interventions += 1
+
+    def snapshot(self) -> dict[str, object]:
+        fingerprints = {
+            fingerprint: asdict(value)
+            for fingerprint, value in sorted(self._values.items())
+        }
+        return {
+            "fingerprints": fingerprints,
+            "totals": {
+                key: sum(value[key] for value in fingerprints.values())
+                for key in ("select", "unknown", "interventions")
+            },
+        }

@@ -1,4 +1,4 @@
-"""Append-only schema-v1 JSONL event log."""
+"""Append-only schema-v2 JSONL event log with v1 read compatibility."""
 
 from __future__ import annotations
 
@@ -16,18 +16,102 @@ class Event:
     session_id: str
     seq: int
     event_type: str
-    fault: str | None
-    phase: str
-    template_fingerprint: str
-    parameter_fingerprint: str
-    occurrence: int
-    decision_key: str
-    outcome: str
-    details: dict[str, Any]
+    fault: str | None = None
+    phase: str | None = None
+    template_fingerprint: str | None = None
+    parameter_fingerprint: str | None = None
+    occurrence: int | None = None
+    decision_key: str | None = None
+    outcome: str | None = None
+    details: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> Event:
-        return cls(**{field: value[field] for field in cls.__dataclass_fields__})
+        if not isinstance(value, dict):
+            raise ValueError("event must be a JSON object")
+        version = value.get("schema_version")
+        if type(version) is not int:
+            raise ValueError("schema_version must be an integer")
+        if version not in {1, 2}:
+            raise ValueError(f"unsupported schema_version {version!r}")
+        required = _required_fields(version, value.get("event_type"))
+        missing = required - value.keys()
+        if missing:
+            raise ValueError(f"missing required fields: {', '.join(sorted(missing))}")
+        null_fields = {field for field in required if value[field] is None}
+        if null_fields:
+            raise ValueError(
+                f"required fields must not be null: {', '.join(sorted(null_fields))}"
+            )
+        for field in _STRING_FIELDS:
+            field_value = value.get(field)
+            if field_value is not None and not isinstance(field_value, str):
+                raise ValueError(f"{field} must be a string")
+        seq = value["seq"]
+        if type(seq) is not int:
+            raise ValueError("seq must be an integer")
+        occurrence = value.get("occurrence")
+        if occurrence is not None and type(occurrence) is not int:
+            raise ValueError("occurrence must be an integer")
+        details = value.get("details")
+        if details is not None and not isinstance(details, dict):
+            raise ValueError("details must be an object")
+        return cls(
+            **{
+                field: value[field]
+                for field in cls.__dataclass_fields__
+                if field in value
+            }
+        )
+
+
+_CORE_FIELDS = {"schema_version", "event_id", "session_id", "seq", "event_type"}
+_STRING_FIELDS = {
+    "event_id",
+    "session_id",
+    "event_type",
+    "fault",
+    "phase",
+    "template_fingerprint",
+    "parameter_fingerprint",
+    "decision_key",
+    "outcome",
+}
+_V1_FIELDS = _CORE_FIELDS | {
+    "fault",
+    "phase",
+    "template_fingerprint",
+    "parameter_fingerprint",
+    "occurrence",
+    "decision_key",
+    "outcome",
+    "details",
+}
+_V2_CONTEXT_FIELDS = _CORE_FIELDS | {
+    "phase",
+    "template_fingerprint",
+    "parameter_fingerprint",
+    "occurrence",
+    "decision_key",
+    "outcome",
+    "details",
+}
+_V2_FIELDS = {
+    "fault_injected": _V1_FIELDS,
+    "treasure_returned": _V1_FIELDS,
+    "mood_changed": _CORE_FIELDS | {"details"},
+    "limit_exceeded": _V2_CONTEXT_FIELDS,
+    "decision_evaluated": _V2_CONTEXT_FIELDS,
+}
+
+
+def _required_fields(version: int, event_type: object) -> set[str]:
+    if version == 1:
+        return _V1_FIELDS
+    try:
+        return _V2_FIELDS[str(event_type)]
+    except KeyError as error:
+        raise ValueError(f"unknown schema-v2 event_type {event_type!r}") from error
 
 
 class EventLog:
@@ -46,7 +130,7 @@ class EventLog:
     def append(self, **fields: Any) -> Event:
         self._seq += 1
         event = Event(
-            schema_version=1,
+            schema_version=2,
             session_id=self.session_id,
             seq=self._seq,
             **fields,
@@ -55,8 +139,16 @@ class EventLog:
         if self.path is not None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(asdict(event), separators=(",", ":")) + "\n")
+                payload = {
+                    key: value for key, value in asdict(event).items() if value is not None
+                }
+                stream.write(json.dumps(payload, separators=(",", ":")) + "\n")
         return event
+
+    def next_seq(self) -> int:
+        """Return the sequence number that the next append will assign."""
+
+        return self._seq + 1
 
     def events(self) -> list[Event]:
         if self.path is None:
@@ -75,7 +167,13 @@ def read_events(path: str | Path) -> list[Event]:
         for line_number, line in enumerate(stream, 1):
             try:
                 events.append(Event.from_dict(json.loads(line.decode("utf-8"))))
-            except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as error:
+            except (
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as error:
                 warnings.warn(
                     f"skipping corrupt DogDB event at line {line_number}: {error}",
                     RuntimeWarning,

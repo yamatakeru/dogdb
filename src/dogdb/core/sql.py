@@ -17,6 +17,16 @@ class SQLClassification:
     kind: SQLKind
     has_top_level_order_by: bool | None = None
     is_transaction: bool = False
+    tables: frozenset[str] | None = None
+    top_level_limit: int | None = None
+    top_level_offset: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _Token:
+    value: str
+    depth: int
+    kind: str = "word"
 
 
 _KNOWN_OTHER = {
@@ -31,16 +41,17 @@ _KNOWN_OTHER = {
 }
 
 
-def _tokens(sql: str) -> list[tuple[str, int]] | None:
-    tokens: list[tuple[str, int]] = []
+def _tokens(sql: str) -> list[_Token] | None:
+    tokens: list[_Token] = []
     word: list[str] = []
     depth = 0
     quote: str | None = None
+    quoted_identifier: list[str] = []
     index = 0
 
     def flush() -> None:
         if word:
-            tokens.append(("".join(word).lower(), depth))
+            tokens.append(_Token("".join(word).lower(), depth))
             word.clear()
 
     while index < len(sql):
@@ -49,9 +60,18 @@ def _tokens(sql: str) -> list[tuple[str, int]] | None:
         if quote is not None:
             if char == quote:
                 if next_char == quote:
+                    if quote == '"':
+                        quoted_identifier.append(char)
                     index += 2
                     continue
+                if quote == '"':
+                    tokens.append(
+                        _Token("".join(quoted_identifier).lower(), depth, "identifier")
+                    )
+                    quoted_identifier.clear()
                 quote = None
+            elif quote == '"':
+                quoted_identifier.append(char)
             index += 1
             continue
         if char in ("'", '"'):
@@ -72,12 +92,14 @@ def _tokens(sql: str) -> list[tuple[str, int]] | None:
             continue
         elif char == "(":
             flush()
+            tokens.append(_Token(char, depth, "symbol"))
             depth += 1
         elif char == ")":
             flush()
             depth -= 1
             if depth < 0:
                 return None
+            tokens.append(_Token(char, depth, "symbol"))
         elif char == ";":
             flush()
             if sql[index + 1 :].strip():
@@ -86,16 +108,73 @@ def _tokens(sql: str) -> list[tuple[str, int]] | None:
             word.append(char)
         else:
             flush()
+            if char in {".", ",", "+", "-", "*", "/", "%", "?"}:
+                tokens.append(_Token(char, depth, "symbol"))
         index += 1
     flush()
     return tokens if quote is None and depth == 0 else None
+
+
+def _from_tables(tokens: list[_Token]) -> frozenset[str] | None:
+    top_level = [token for token in tokens if token.depth == 0]
+    tables: set[str] = set()
+    for index, token in enumerate(top_level):
+        if token.kind != "word" or token.value not in {"from", "join"}:
+            continue
+        if index + 1 >= len(top_level):
+            return None
+        first = top_level[index + 1]
+        if first.kind not in {"word", "identifier"}:
+            return None
+        name = first.value
+        if index + 3 < len(top_level) and top_level[index + 2].value == ".":
+            second = top_level[index + 3]
+            if second.kind not in {"word", "identifier"}:
+                return None
+            name = f"{name}.{second.value}"
+        following = top_level[index + 2] if index + 2 < len(top_level) else None
+        if following is not None and following.value == "(":
+            return None
+        tables.add(name)
+    return frozenset(tables) if tables else None
+
+
+def _literal_after(tokens: list[_Token], keyword: str) -> int | None:
+    top_level = [token for token in tokens if token.depth == 0]
+    positions = [
+        index
+        for index, token in enumerate(top_level)
+        if token.kind == "word" and token.value == keyword
+    ]
+    if len(positions) != 1 or positions[0] + 1 >= len(top_level):
+        return None
+    literal = top_level[positions[0] + 1]
+    if (
+        literal.kind != "word"
+        or not literal.value.isascii()
+        or not literal.value.isdecimal()
+    ):
+        return None
+    following = (
+        top_level[positions[0] + 2]
+        if positions[0] + 2 < len(top_level)
+        else None
+    )
+    allowed_following = (
+        {"offset"} if keyword == "limit" else {"rows", "fetch", "for"}
+    )
+    if following is not None and (
+        following.kind != "word" or following.value not in allowed_following
+    ):
+        return None
+    return int(literal.value)
 
 
 def classify_sql(sql: str) -> SQLClassification:
     tokens = _tokens(sql)
     if not tokens:
         return SQLClassification(SQLKind.UNKNOWN)
-    top_level = [token for token, depth in tokens if depth == 0]
+    top_level = [token.value for token in tokens if token.depth == 0]
     if not top_level:
         return SQLClassification(SQLKind.UNKNOWN)
     if top_level[0] == "select":
@@ -103,7 +182,13 @@ def classify_sql(sql: str) -> SQLClassification:
             top_level[index : index + 2] == ["order", "by"]
             for index in range(len(top_level) - 1)
         )
-        return SQLClassification(SQLKind.SELECT, ordered)
+        return SQLClassification(
+            SQLKind.SELECT,
+            ordered,
+            tables=_from_tables(tokens),
+            top_level_limit=_literal_after(tokens, "limit"),
+            top_level_offset=_literal_after(tokens, "offset"),
+        )
     if top_level[0] in _KNOWN_OTHER:
         return SQLClassification(
             SQLKind.OTHER,
