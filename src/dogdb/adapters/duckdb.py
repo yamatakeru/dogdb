@@ -1,0 +1,25 @@
+"""DuckDB adapter."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
+from dogdb.adapters.base import materialize
+from dogdb.core.models import LogicalResult
+
+
+class DuckDBAdapter:
+    def __init__(self, connection: Any) -> None:
+        self.connection = connection
+
+    def execute(self, sql: str, params: Sequence[Any] | None = None) -> LogicalResult:
+        cursor = self.connection.execute(sql, params) if params else self.connection.execute(sql)
+        return materialize(cursor)
+
+    def close(self) -> None:
+        self.connection.close()
+
+    @property
+    def in_transaction(self) -> bool:
+        return bool(getattr(self.connection, "in_transaction", False))
