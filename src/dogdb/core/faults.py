@@ -6,11 +6,14 @@ import math
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.errors import (
+    DollyBarkError,
+    DollyBusyError,
     DollyIgnoredError,
+    DollyNoDropError,
     DollyStashedError,
     DollyTailChaseError,
 )
@@ -18,6 +21,9 @@ from dogdb.core.event_log import Event, EventLog
 from dogdb.core.house import HouseLedger, Treasure
 from dogdb.core.models import Decision, LogicalResult
 from dogdb.core.sql import SQLClassification, SQLKind
+
+if TYPE_CHECKING:
+    from dogdb.core.mood import MoodEngine
 
 
 KNOWN_FAULTS = frozenset(
@@ -65,6 +71,7 @@ class FaultPolicy:
     tail_chase_mode: str = "silent"
     chew_profiles: tuple[str, ...] = CHEW_PROFILES
     wrong_count_max_delta: int = 1
+    sloth_max_delay_ms: int = 1_000
 
     def __post_init__(self) -> None:
         normalized = {
@@ -96,6 +103,12 @@ class FaultPolicy:
             or self.wrong_count_max_delta < 1
         ):
             raise ValueError("wrong_count_max_delta must be a positive integer")
+        if (
+            isinstance(self.sloth_max_delay_ms, bool)
+            or not isinstance(self.sloth_max_delay_ms, int)
+            or self.sloth_max_delay_ms < 1
+        ):
+            raise ValueError("sloth_max_delay_ms must be a positive integer")
 
     def probability(self, fault: str) -> float:
         return self.probabilities[fault.removesuffix("_ERROR")]
@@ -134,6 +147,8 @@ class FaultEngine:
         policy: FaultPolicy,
         max_rows: int,
         debug: bool = False,
+        clock: Callable[[float], None] | None = None,
+        mood: MoodEngine | None = None,
     ) -> None:
         self.decisions = decisions
         self.events = events
@@ -141,10 +156,14 @@ class FaultEngine:
         self.policy = policy
         self.max_rows = max_rows
         self.debug = debug
+        self.clock = clock
+        self.mood = mood
 
     def _fires(self, decision: Decision, fault: str) -> bool:
         fault_name = fault.removesuffix("_ERROR")
         probability = self.policy.probability(fault_name)
+        if self.mood is not None:
+            probability *= self.mood.multiplier(fault_name)
         if fault_name in {"STASH", "SHUFFLE", "IGNORE"}:
             value = self.decisions.legacy_unit_interval(
                 decision.decision_key, fault_name
@@ -204,20 +223,69 @@ class FaultEngine:
             details=details,
         )
 
-    def before_execute(self, decision: Decision) -> None:
+    def before_execute(self, decision: Decision) -> bool:
         selected = self.select_candidate(
-            decision, {"IGNORE"}, phase="before_execute"
+            decision,
+            {"BARK", "GUARD_BOWL", "IGNORE", "SLOTH"},
+            phase="before_execute",
         )
-        if selected != "IGNORE":
-            self._debug_decision(decision, candidates=["IGNORE"])
-            return
+        if selected == "BARK":
+            self._raise_before_execute(
+                decision,
+                fault="BARK",
+                error_type=DollyBarkError,
+                message="Dolly barked and blocked the request.",
+            )
+        if selected == "GUARD_BOWL":
+            self._raise_before_execute(
+                decision,
+                fault="GUARD_BOWL",
+                error_type=DollyBusyError,
+                message="Dolly is guarding the bowl; the database is busy.",
+            )
+        if selected == "IGNORE":
+            self._raise_before_execute(
+                decision,
+                fault="IGNORE",
+                error_type=DollyIgnoredError,
+                message="Dolly ignored the request and went back to sleep.",
+            )
+        if selected == "SLOTH":
+            delay_ms = 1 + self._derived_index(
+                decision, "delay:SLOTH", self.policy.sloth_max_delay_ms
+            )
+            self._event(
+                decision,
+                fault="SLOTH",
+                outcome="delayed",
+                details={"delay_ms": delay_ms},
+            )
+            assert self.clock is not None
+            self.clock(delay_ms / 1_000)
+            return True
+        self._debug_decision(
+            decision,
+            candidates=["BARK", "GUARD_BOWL", "IGNORE", "SLOTH"],
+        )
+        return False
+
+    def _raise_before_execute(
+        self,
+        decision: Decision,
+        *,
+        fault: str,
+        error_type: type[DollyBarkError]
+        | type[DollyBusyError]
+        | type[DollyIgnoredError],
+        message: str,
+    ) -> None:
         event = self._event(
-            decision, fault="IGNORE", outcome="not_executed", details={}
+            decision, fault=fault, outcome="not_executed", details={}
         )
-        raise DollyIgnoredError(
-            "Dolly ignored the request and went back to sleep.",
+        raise error_type(
+            message,
             event_id=event.event_id,
-            fault="IGNORE",
+            fault=fault,
             phase=decision.phase,
             retryable=True,
             outcome="not_executed",
@@ -234,6 +302,24 @@ class FaultEngine:
         if len(result.rows) > self.max_rows:
             self._limit_exceeded(decision, observed=len(result.rows))
             return result
+
+        if self.select_candidate(
+            decision, {"NO_DROP"}, phase="on_result"
+        ) == "NO_DROP":
+            event = self._event(
+                decision,
+                fault="NO_DROP",
+                outcome="response_lost",
+                details={},
+            )
+            raise DollyNoDropError(
+                "Dolly fetched the result but would not drop it.",
+                event_id=event.event_id,
+                fault="NO_DROP",
+                phase=decision.phase,
+                retryable=True,
+                outcome="response_lost",
+            )
 
         sticky = self.house.active_for(decision.template_fingerprint)
         if sticky:

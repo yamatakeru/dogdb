@@ -23,6 +23,7 @@ def _run(fault: str) -> dict[str, object]:
         session_id=f"fixture-{fault.lower()}",
         faults={fault: 1},
     )
+    assert conn._mood is None
     error = None
     try:
         rows = conn.execute("select id from t").fetchall()

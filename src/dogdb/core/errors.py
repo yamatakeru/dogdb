@@ -30,6 +30,18 @@ class DollyIgnoredError(DogDBError):
     pass
 
 
+class DollyBarkError(DogDBError):
+    pass
+
+
+class DollyBusyError(DogDBError):
+    pass
+
+
+class DollyNoDropError(DogDBError):
+    pass
+
+
 class DollyTailChaseError(DogDBError):
     def __init__(
         self,

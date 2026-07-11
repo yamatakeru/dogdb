@@ -117,7 +117,10 @@ class EventLog:
         if self.path is not None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(asdict(event), separators=(",", ":")) + "\n")
+                payload = {
+                    key: value for key, value in asdict(event).items() if value is not None
+                }
+                stream.write(json.dumps(payload, separators=(",", ":")) + "\n")
         return event
 
     def events(self) -> list[Event]:

@@ -143,6 +143,63 @@ def test_backends_produce_matching_value_fault_events(fault, sql, options):
     assert signatures[0] == signatures[1]
 
 
+@pytest.mark.parametrize(
+    ("fault", "error_type", "options"),
+    [
+        ("SLOTH", None, {"clock": lambda _: None}),
+        ("BARK", dogdb.DollyBarkError, {}),
+        ("GUARD_BOWL", dogdb.DollyBusyError, {}),
+        ("NO_DROP", dogdb.DollyNoDropError, {}),
+    ],
+)
+def test_backends_produce_matching_availability_fault_events(
+    fault, error_type, options
+):
+    signatures = []
+    for backend in ("duckdb", "sqlite"):
+        conn = dogdb.wrap(
+            _populated(backend),
+            seed=42,
+            session_id=f"availability-{fault}",
+            faults={fault: 1},
+            **options,
+        )
+        if error_type is None:
+            conn.execute("select id from t order by id").fetchall()
+        else:
+            with pytest.raises(error_type):
+                conn.execute("select id from t order by id")
+        signatures.append(
+            [
+                (
+                    event.event_type,
+                    event.fault,
+                    event.decision_key,
+                    event.outcome,
+                    event.details,
+                )
+                for event in conn.dolly.log()
+            ]
+        )
+    assert signatures[0] == signatures[1]
+
+
+def test_backends_produce_matching_mood_event_sequences():
+    signatures = []
+    for backend in ("duckdb", "sqlite"):
+        conn = dogdb.wrap(
+            _populated(backend),
+            seed=42,
+            session_id="mood-conformance",
+            faults={"ECHO": 0.4},
+            mood={"epoch_length": 2},
+        )
+        for _ in range(10):
+            conn.execute("select id from t order by id").fetchall()
+        signatures.append(conn.dolly.log())
+    assert signatures[0] == signatures[1]
+
+
 class _TypedCursor:
     description = (("tz",), ("amount",), ("payload",))
     rowcount = -1

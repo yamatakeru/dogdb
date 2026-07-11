@@ -35,18 +35,18 @@
 
 ## 5. 可用性・時間系の障害群
 
-- [ ] 5.1 clock注入（`wrap(..., clock=...)`、既定 `time.sleep`）を実装する
-- [ ] 5.2 SLOTH（決定的 `delay_ms` 記録、遅延後に実行継続、fault枠消費）を実装する
-- [ ] 5.3 BARK（`DollyBarkError`）/ GUARD_BOWL（`DollyBusyError`）を実装する（いずれも `not_executed`・retryable=True）
-- [ ] 5.4 NO_DROP（実行完了後に `DollyNoDropError`・`response_lost`、SELECT限定）を実装する
-- [ ] 5.5 検証: no-op clockで実時間待ちなしのSLOTHテスト、NO_DROP発火時にバックエンド実行済みであることの検証（副作用のあるSELECTの代替として実行カウンタ付きアダプタスタブを使用）
+- [x] 5.1 clock注入（`wrap(..., clock=...)`、既定 `time.sleep`）を実装する
+- [x] 5.2 SLOTH（決定的 `delay_ms` 記録、遅延後に実行継続、fault枠消費）を実装する
+- [x] 5.3 BARK（`DollyBarkError`）/ GUARD_BOWL（`DollyBusyError`）を実装する（いずれも `not_executed`・retryable=True）
+- [x] 5.4 NO_DROP（実行完了後に `DollyNoDropError`・`response_lost`、SELECT限定）を実装する
+- [x] 5.5 検証: no-op clockで実時間待ちなしのSLOTHテスト、NO_DROP発火時にバックエンド実行済みであることの検証（副作用のあるSELECTの代替として実行カウンタ付きアダプタスタブを使用）
 
 ## 6. mood状態機械
 
-- [ ] 6.1 論理時計（全execute/executemanyで加算）とepoch分割を実装する
-- [ ] 6.2 決定的状態遷移（CALM/SLEEPY/ZOOMY、epoch境界のみ、seed/session/epoch由来）と `mood_changed` イベントを実装する
-- [ ] 6.3 mood係数表による実効重み変調（既定表＋設定上書き）を実装する
-- [ ] 6.4 検証: mood無効時のイベント列がmood導入前実装と一致する固定fixtureテスト、mood有効2runの完全一致テスト
+- [x] 6.1 論理時計（全execute/executemanyで加算）とepoch分割を実装する
+- [x] 6.2 決定的状態遷移（CALM/SLEEPY/ZOOMY、epoch境界のみ、seed/session/epoch由来）と `mood_changed` イベントを実装する
+- [x] 6.3 mood係数表による実効重み変調（既定表＋設定上書き）を実装する
+- [x] 6.4 検証: mood無効時のイベント列がmood導入前実装と一致する固定fixtureテスト、mood有効2runの完全一致テスト
 
 ## 7. 自動返却とstale-read-cache
 

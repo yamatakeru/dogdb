@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dogdb.adapters.duckdb import DuckDBAdapter
 from dogdb.adapters.sqlite import SQLiteAdapter
@@ -14,6 +15,7 @@ from dogdb.core.event_log import Event, EventLog
 from dogdb.core.faults import KNOWN_FAULTS, FaultEngine, FaultPolicy
 from dogdb.core.house import HouseLedger, Treasure
 from dogdb.core.models import LogicalResult
+from dogdb.core.mood import MoodEngine, parse_mood_config
 from dogdb.core.sql import SQLKind, classify_sql
 
 
@@ -74,6 +76,8 @@ class DBAPIProxy:
         only_tables: frozenset[str] | None,
         exclude_tables: frozenset[str] | None,
         debug: bool,
+        clock: Callable[[float], None],
+        mood: MoodEngine | None,
     ) -> None:
         self._connection = connection
         self._adapter = adapter
@@ -89,7 +93,10 @@ class DBAPIProxy:
             policy,
             max_rows,
             debug,
+            clock,
+            mood,
         )
+        self._mood = mood
         self._only_tables = only_tables
         self._exclude_tables = exclude_tables
         self._result = LogicalResult([], [], -1)
@@ -97,6 +104,7 @@ class DBAPIProxy:
         self.dolly = DollyNamespace(self)
 
     def execute(self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None) -> DBAPIProxy:
+        self._advance_mood()
         classification = classify_sql(sql)
         if (
             isinstance(params, Mapping)
@@ -115,8 +123,7 @@ class DBAPIProxy:
             phase="before_execute",
         )
         scoped = self._scope_applies(classification.tables)
-        if scoped:
-            self._faults.before_execute(before)
+        before_consumed = self._faults.before_execute(before) if scoped else False
         result = self._adapter.execute(sql, params)
         on_result = self._decisions.decide(
             template=template,
@@ -126,11 +133,30 @@ class DBAPIProxy:
         )
         self._result = (
             self._faults.on_result(on_result, classification, result)
-            if scoped
+            if scoped and not before_consumed
             else result
         )
         self._offset = 0
         return self
+
+    def _advance_mood(self) -> None:
+        if self._mood is None:
+            return
+        transition = self._mood.advance()
+        if transition is None:
+            return
+        seq = len(self._events.events()) + 1
+        self._events.append(
+            event_id=self._decisions.deterministic_id(
+                transition.derivation_key, f"event:{seq}:MOOD"
+            ),
+            event_type="mood_changed",
+            details={
+                "from": transition.previous,
+                "to": transition.current,
+                "tick": transition.tick,
+            },
+        )
 
     def _scope_applies(self, tables: frozenset[str] | None) -> bool:
         if self._only_tables is not None:
@@ -140,6 +166,7 @@ class DBAPIProxy:
         return True
 
     def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DBAPIProxy:
+        self._advance_mood()
         cursor = self._connection.executemany(sql, params)
         self._result = LogicalResult([], [], getattr(cursor, "rowcount", -1))
         self._offset = 0
@@ -221,6 +248,9 @@ def wrap(
         "nullify",
     ),
     wrong_count_max_delta: int = 1,
+    sloth_max_delay_ms: int = 1_000,
+    clock: Callable[[float], None] = time.sleep,
+    mood: bool | Mapping[str, Any] | None = False,
     log_path: str | Path | None = None,
     event_log: str | Path | None = None,
     max_rows: int = 10_000,
@@ -231,6 +261,8 @@ def wrap(
 ) -> DBAPIProxy:
     if only_tables is not None and exclude_tables is not None:
         raise ValueError("only_tables and exclude_tables are mutually exclusive")
+    if not callable(clock):
+        raise ValueError("clock must be callable")
     probabilities: dict[str, float] = {}
     supplied = fault_probabilities if fault_probabilities is not None else faults
     if supplied:
@@ -241,6 +273,12 @@ def wrap(
     if session_id is None:
         digest = hashlib.sha256(f"dogdb-session\0{seed}".encode()).hexdigest()[:24]
         session_id = f"session-{digest}"
+    mood_config = parse_mood_config(mood)
+    mood_engine = (
+        MoodEngine(seed=seed, session_id=session_id, config=mood_config)
+        if mood_config is not None
+        else None
+    )
     return DBAPIProxy(
         connection,
         _adapter_for(connection),
@@ -253,6 +291,7 @@ def wrap(
             tail_chase_mode=tail_chase_mode,
             chew_profiles=tuple(chew_profiles),
             wrong_count_max_delta=wrong_count_max_delta,
+            sloth_max_delay_ms=sloth_max_delay_ms,
         ),
         log_path=log_path if log_path is not None else event_log,
         max_rows=max_rows,
@@ -260,6 +299,8 @@ def wrap(
         only_tables=_normalize_tables(only_tables),
         exclude_tables=_normalize_tables(exclude_tables),
         debug=debug,
+        clock=clock,
+        mood=mood_engine,
     )
 
 

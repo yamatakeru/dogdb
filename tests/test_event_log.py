@@ -223,4 +223,6 @@ def test_debug_records_non_firing_decisions_only_when_enabled():
         "decision_evaluated",
     ]
     assert all(event.outcome == "not_injected" for event in events)
-    assert events[0].details == {"faults": ["IGNORE"]}
+    assert events[0].details == {
+        "faults": ["BARK", "GUARD_BOWL", "IGNORE", "SLOTH"]
+    }
