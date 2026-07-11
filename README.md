@@ -44,6 +44,13 @@ SQLite なら `dogdb.connect("test.sqlite", backend="sqlite", seed=42)`、DuckDB
 
 注入例外は `DogDBError` の派生型で、`event_id`、`fault`、`phase`、`retryable`、`outcome` を持ちます。バックエンド固有の実エラーはラップしません。
 
+## 使用例
+
+- [STASH と house](examples/01_stash_and_house.py) — 隠れた行の粘着性と `return_all()` による復帰を確認します。
+- [SHUFFLE と暗黙順序のバグ](examples/02_shuffle_ordering_bug.py) — `ORDER BY` の有無による集計結果の違いを比較します。
+- [IGNORE の再試行](examples/03_ignore_retry.py) — `retryable` を見て安全に再試行するパターンを示します。
+- [pytest でのカオステスト](examples/04_pytest_chaos.py) — フィクスチャとイベントログの assert で耐障害性を検証します。
+
 ## 限界と安全上の前提
 
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
