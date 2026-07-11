@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ast
 import sqlite3
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -19,8 +21,11 @@ def _backend(name: str):
 
 def _populated(name: str):
     raw = _backend(name)
-    raw.execute("create table t(id integer)")
-    raw.executemany("insert into t values (?)", [(1,), (2,), (3,)])
+    raw.execute("create table t(id integer, text_value varchar, amount double)")
+    raw.executemany(
+        "insert into t values (?, ?, ?)",
+        [(1, "alpha", 1.25), (2, "beta", 2.5), (3, "gamma", 3.75)],
+    )
     return raw
 
 
@@ -69,6 +74,107 @@ def test_backends_produce_matching_fault_events():
             [(event.fault, event.decision_key, event.outcome) for event in conn.dolly.log()]
         )
     assert signatures[0] == signatures[1]
+
+
+@pytest.mark.parametrize(
+    ("fault", "sql", "options"),
+    [
+        ("ECHO", "select id from t order by id", {}),
+        (
+            "TAIL_CHASE",
+            "select id from t order by id",
+            {"tail_chase_mode": "silent"},
+        ),
+        ("FALSE_EMPTY", "select id from t order by id", {}),
+        ("PAGE_HOLE", "select id from t order by id limit 2 offset 1", {}),
+    ],
+)
+def test_backends_produce_matching_shape_fault_events(fault, sql, options):
+    signatures = []
+    for backend in ("duckdb", "sqlite"):
+        conn = dogdb.wrap(
+            _populated(backend),
+            seed=42,
+            session_id=f"shape-{fault}",
+            faults={fault: 1},
+            **options,
+        )
+        conn.execute(sql).fetchall()
+        signatures.append(
+            [
+                (event.fault, event.decision_key, event.outcome, event.details)
+                for event in conn.dolly.log()
+            ]
+        )
+        assert conn.dolly.house() == []
+    assert signatures[0] == signatures[1]
+
+
+@pytest.mark.parametrize(
+    ("fault", "sql", "options"),
+    [
+        (
+            "CHEW",
+            "select text_value from t order by id",
+            {"chew_profiles": ("utf8_truncate",)},
+        ),
+        ("TANGLED_LEASH", "select id, text_value from t order by id", {}),
+        ("WRONG_COUNT", "select id from t order by id", {}),
+    ],
+)
+def test_backends_produce_matching_value_fault_events(fault, sql, options):
+    signatures = []
+    for backend in ("duckdb", "sqlite"):
+        conn = dogdb.wrap(
+            _populated(backend),
+            seed=42,
+            session_id=f"value-{fault}",
+            faults={fault: 1},
+            **options,
+        )
+        conn.execute(sql).fetchall()
+        signatures.append(
+            [
+                (event.fault, event.decision_key, event.outcome, event.details)
+                for event in conn.dolly.log()
+            ]
+        )
+        assert conn.dolly.house() == []
+    assert signatures[0] == signatures[1]
+
+
+class _TypedCursor:
+    description = (("tz",), ("amount",), ("payload",))
+    rowcount = -1
+
+    def fetchall(self):
+        return [
+            (
+                datetime(2026, 7, 12, 12, 30, tzinfo=timezone.utc),
+                Decimal("123.45"),
+                b"\x00\xff",
+            )
+        ]
+
+
+class _TypedConnection:
+    in_transaction = False
+
+    def execute(self, sql, params=None):
+        return _TypedCursor()
+
+    def close(self):
+        pass
+
+
+@pytest.mark.parametrize("adapter", [DuckDBAdapter, SQLiteAdapter])
+def test_common_adapter_suite_preserves_timezone_decimal_and_blob(adapter):
+    result = adapter(_TypedConnection()).execute("select typed values")
+
+    assert isinstance(result.rows[0][0], datetime)
+    assert result.rows[0][0].tzinfo is timezone.utc
+    assert result.rows[0][1] == Decimal("123.45")
+    assert result.rows[0][2] == b"\x00\xff"
 
 
 def test_wrap_duckdb_and_plain_result_match_when_calm():

@@ -20,18 +20,18 @@
 
 ## 3. 形状変異の障害群
 
-- [ ] 3.1 ECHO（行複製、`rows_duplicated`）を実装する
-- [ ] 3.2 TAIL_CHASE（silent切り詰め `rows_truncated` / エラーモード `DollyTailChaseError`・`read_partial`）を実装する
-- [ ] 3.3 FALSE_EMPTY（列保持の0行、`empty_result`、非粘着）を実装する
-- [ ] 3.4 分類器にトップレベルLIMIT/OFFSET検出を追加し、PAGE_HOLE（`page_hole`）を実装する
-- [ ] 3.5 検証: 各障害の決定性テスト（同一seed 2run一致）、houseに宝物が増えないこと、両バックエンドのイベント列一致
+- [x] 3.1 ECHO（行複製、`rows_duplicated`）を実装する
+- [x] 3.2 TAIL_CHASE（silent切り詰め `rows_truncated` / エラーモード `DollyTailChaseError`・`read_partial`）を実装する
+- [x] 3.3 FALSE_EMPTY（列保持の0行、`empty_result`、非粘着）を実装する
+- [x] 3.4 分類器にトップレベルLIMIT/OFFSET検出を追加し、PAGE_HOLE（`page_hole`）を実装する
+- [x] 3.5 検証: 各障害の決定性テスト（同一seed 2run一致）、houseに宝物が増えないこと、両バックエンドのイベント列一致
 
 ## 4. 値変異の障害群
 
-- [ ] 4.1 CHEW（プロファイル `utf8_truncate` / `precision_loss` / `nullify`、適合セル選択、details は行番号・列番号・プロファイル名のみ）を実装する
-- [ ] 4.2 TANGLED_LEASH（隣接列ラベル交換、値は不動）を実装する
-- [ ] 4.3 WRONG_COUNT（logical rowcountのみ±k改ざん、行データ・backend rowcount不変）を実装する
-- [ ] 4.4 検証: 適合セルなしで候補外になるテスト、破損前後の値がログに現れないことのgrepテスト、共通適合スイートへtimezone/Decimal/BLOBの値型ケースを追加
+- [x] 4.1 CHEW（プロファイル `utf8_truncate` / `precision_loss` / `nullify`、適合セル選択、details は行番号・列番号・プロファイル名のみ）を実装する
+- [x] 4.2 TANGLED_LEASH（隣接列ラベル交換、値は不動）を実装する
+- [x] 4.3 WRONG_COUNT（logical rowcountのみ±k改ざん、行データ・backend rowcount不変）を実装する
+- [x] 4.4 検証: 適合セルなしで候補外になるテスト、破損前後の値がログに現れないことのgrepテスト、共通適合スイートへtimezone/Decimal/BLOBの値型ケースを追加
 
 ## 5. 可用性・時間系の障害群
 

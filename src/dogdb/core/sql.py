@@ -18,6 +18,8 @@ class SQLClassification:
     has_top_level_order_by: bool | None = None
     is_transaction: bool = False
     tables: frozenset[str] | None = None
+    top_level_limit: int | None = None
+    top_level_offset: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +108,7 @@ def _tokens(sql: str) -> list[_Token] | None:
             word.append(char)
         else:
             flush()
-            if char in {".", ","}:
+            if char in {".", ",", "+", "-", "*", "/", "%", "?"}:
                 tokens.append(_Token(char, depth, "symbol"))
         index += 1
     flush()
@@ -137,6 +139,37 @@ def _from_tables(tokens: list[_Token]) -> frozenset[str] | None:
     return frozenset(tables) if tables else None
 
 
+def _literal_after(tokens: list[_Token], keyword: str) -> int | None:
+    top_level = [token for token in tokens if token.depth == 0]
+    positions = [
+        index
+        for index, token in enumerate(top_level)
+        if token.kind == "word" and token.value == keyword
+    ]
+    if len(positions) != 1 or positions[0] + 1 >= len(top_level):
+        return None
+    literal = top_level[positions[0] + 1]
+    if (
+        literal.kind != "word"
+        or not literal.value.isascii()
+        or not literal.value.isdecimal()
+    ):
+        return None
+    following = (
+        top_level[positions[0] + 2]
+        if positions[0] + 2 < len(top_level)
+        else None
+    )
+    allowed_following = (
+        {"offset"} if keyword == "limit" else {"rows", "fetch", "for"}
+    )
+    if following is not None and (
+        following.kind != "word" or following.value not in allowed_following
+    ):
+        return None
+    return int(literal.value)
+
+
 def classify_sql(sql: str) -> SQLClassification:
     tokens = _tokens(sql)
     if not tokens:
@@ -149,7 +182,13 @@ def classify_sql(sql: str) -> SQLClassification:
             top_level[index : index + 2] == ["order", "by"]
             for index in range(len(top_level) - 1)
         )
-        return SQLClassification(SQLKind.SELECT, ordered, tables=_from_tables(tokens))
+        return SQLClassification(
+            SQLKind.SELECT,
+            ordered,
+            tables=_from_tables(tokens),
+            top_level_limit=_literal_after(tokens, "limit"),
+            top_level_offset=_literal_after(tokens, "offset"),
+        )
     if top_level[0] in _KNOWN_OTHER:
         return SQLClassification(
             SQLKind.OTHER,

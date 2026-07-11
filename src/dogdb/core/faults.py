@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from dogdb.core.decision import DecisionEngine
-from dogdb.core.errors import DollyIgnoredError, DollyStashedError
+from dogdb.core.errors import (
+    DollyIgnoredError,
+    DollyStashedError,
+    DollyTailChaseError,
+)
 from dogdb.core.event_log import Event, EventLog
 from dogdb.core.house import HouseLedger, Treasure
 from dogdb.core.models import Decision, LogicalResult
@@ -48,12 +55,16 @@ ON_RESULT_PRIORITY = (
     "WRONG_COUNT",
     "OLD_BONE",
 )
+CHEW_PROFILES = ("utf8_truncate", "precision_loss", "nullify")
 
 
 @dataclass(slots=True)
 class FaultPolicy:
     probabilities: dict[str, float] = field(default_factory=dict)
     stash_mode: str = "missing"
+    tail_chase_mode: str = "silent"
+    chew_profiles: tuple[str, ...] = CHEW_PROFILES
+    wrong_count_max_delta: int = 1
 
     def __post_init__(self) -> None:
         normalized = {
@@ -68,6 +79,23 @@ class FaultPolicy:
         self.probabilities = {name: normalized.get(name, 0.0) for name in KNOWN_FAULTS}
         if self.stash_mode not in {"missing", "error"}:
             raise ValueError("stash_mode must be 'missing' or 'error'")
+        if self.tail_chase_mode not in {"silent", "error"}:
+            raise ValueError("tail_chase_mode must be 'silent' or 'error'")
+        unknown_profiles = set(self.chew_profiles) - set(CHEW_PROFILES)
+        if unknown_profiles:
+            raise ValueError(
+                f"unknown CHEW profiles: {', '.join(sorted(unknown_profiles))}"
+            )
+        if not self.chew_profiles:
+            raise ValueError("chew_profiles must not be empty")
+        if len(set(self.chew_profiles)) != len(self.chew_profiles):
+            raise ValueError("chew_profiles must not contain duplicates")
+        if (
+            isinstance(self.wrong_count_max_delta, bool)
+            or not isinstance(self.wrong_count_max_delta, int)
+            or self.wrong_count_max_delta < 1
+        ):
+            raise ValueError("wrong_count_max_delta must be a positive integer")
 
     def probability(self, fault: str) -> float:
         return self.probabilities[fault.removesuffix("_ERROR")]
@@ -214,6 +242,11 @@ class FaultEngine:
             return LogicalResult(result.columns, rows, len(rows))
 
         candidates: list[str] = []
+        chew_choice = (
+            self._chew_choice(decision, result)
+            if self.policy.probability("CHEW") > 0
+            else None
+        )
         stash_released = self.house.consume_release(decision.template_fingerprint)
         if not stash_released and result.rows:
             candidates.append(
@@ -221,12 +254,41 @@ class FaultEngine:
             )
         if classification.has_top_level_order_by is False and len(result.rows) > 1:
             candidates.append("SHUFFLE")
+        if result.rows:
+            candidates.extend(("FALSE_EMPTY", "TAIL_CHASE", "ECHO"))
+        if (
+            result.rows
+            and classification.top_level_limit is not None
+            and classification.top_level_offset is not None
+            and classification.top_level_offset > 0
+        ):
+            candidates.append("PAGE_HOLE")
+        if len(result.columns) > 1:
+            candidates.append("TANGLED_LEASH")
+        if chew_choice is not None:
+            candidates.append("CHEW")
+        candidates.append("WRONG_COUNT")
         selected = self.select_candidate(decision, candidates, phase="on_result")
 
         if selected in {"STASH", "STASH_ERROR"}:
             return self._stash(decision, result, raises=self.policy.stash_mode == "error")
+        if selected == "FALSE_EMPTY":
+            return self._false_empty(decision, result)
+        if selected == "TAIL_CHASE":
+            return self._tail_chase(decision, result)
+        if selected == "PAGE_HOLE":
+            return self._page_hole(decision, result)
+        if selected == "ECHO":
+            return self._echo(decision, result)
         if selected == "SHUFFLE":
             return self._shuffle(decision, result)
+        if selected == "TANGLED_LEASH":
+            return self._tangled_leash(decision, result)
+        if selected == "CHEW":
+            assert chew_choice is not None
+            return self._chew(decision, result, chew_choice)
+        if selected == "WRONG_COUNT":
+            return self._wrong_count(decision, result)
         self._debug_decision(decision, candidates=candidates)
         return result
 
@@ -326,3 +388,180 @@ class FaultEngine:
             rows[0], rows[1] = rows[1], rows[0]
         self._event(decision, fault="SHUFFLE", outcome="rows_reordered", details={})
         return LogicalResult(result.columns, rows, len(rows))
+
+    def _derived_index(self, decision: Decision, tag: str, size: int) -> int:
+        digest = self.decisions.derive(decision.decision_key, tag)
+        return int.from_bytes(digest[:8], "big") % size
+
+    def _echo(self, decision: Decision, result: LogicalResult) -> LogicalResult:
+        row_index = self._derived_index(decision, "rows:ECHO", len(result.rows))
+        rows = list(result.rows)
+        rows.insert(row_index + 1, rows[row_index])
+        self._event(
+            decision,
+            fault="ECHO",
+            outcome="rows_duplicated",
+            details={"row_index": row_index},
+        )
+        return LogicalResult(list(result.columns), rows, len(rows))
+
+    def _tail_chase(
+        self, decision: Decision, result: LogicalResult
+    ) -> LogicalResult:
+        truncated = 1 + self._derived_index(
+            decision, "rows:TAIL_CHASE", len(result.rows)
+        )
+        delivered = len(result.rows) - truncated
+        event = self._event(
+            decision,
+            fault="TAIL_CHASE",
+            outcome=(
+                "read_partial"
+                if self.policy.tail_chase_mode == "error"
+                else "rows_truncated"
+            ),
+            details={"delivered_rows": delivered, "truncated_rows": truncated},
+        )
+        if self.policy.tail_chase_mode == "error":
+            raise DollyTailChaseError(
+                f"Dolly stopped the chase after delivering {delivered} rows.",
+                event_id=event.event_id,
+                fault="TAIL_CHASE",
+                phase=decision.phase,
+                retryable=True,
+                outcome="read_partial",
+                delivered_rows=delivered,
+            )
+        rows = result.rows[:delivered]
+        return LogicalResult(list(result.columns), rows, len(rows))
+
+    def _false_empty(
+        self, decision: Decision, result: LogicalResult
+    ) -> LogicalResult:
+        self._event(
+            decision,
+            fault="FALSE_EMPTY",
+            outcome="empty_result",
+            details={},
+        )
+        return LogicalResult(list(result.columns), [], 0)
+
+    def _page_hole(
+        self, decision: Decision, result: LogicalResult
+    ) -> LogicalResult:
+        removed = 1 + self._derived_index(
+            decision, "rows:PAGE_HOLE", len(result.rows)
+        )
+        rows = result.rows[removed:]
+        self._event(
+            decision,
+            fault="PAGE_HOLE",
+            outcome="page_hole",
+            details={"rows_removed": removed},
+        )
+        return LogicalResult(list(result.columns), rows, len(rows))
+
+    def _tangled_leash(
+        self, decision: Decision, result: LogicalResult
+    ) -> LogicalResult:
+        left = self._derived_index(
+            decision, "columns:TANGLED_LEASH", len(result.columns) - 1
+        )
+        columns = list(result.columns)
+        columns[left], columns[left + 1] = columns[left + 1], columns[left]
+        self._event(
+            decision,
+            fault="TANGLED_LEASH",
+            outcome="column_labels_swapped",
+            details={"column_indices": [left, left + 1]},
+        )
+        return LogicalResult(columns, list(result.rows), result.rowcount)
+
+    def _chew_choice(
+        self, decision: Decision, result: LogicalResult
+    ) -> tuple[str, int, int, Any] | None:
+        eligible: list[tuple[str, list[tuple[int, int, Any]]]] = []
+        for profile in self.policy.chew_profiles:
+            cells: list[tuple[int, int, Any]] = []
+            for row_index, row in enumerate(result.rows):
+                for column_index, value in enumerate(row):
+                    mutated = _chew_value(profile, value)
+                    if mutated is not _INELIGIBLE:
+                        cells.append((row_index, column_index, mutated))
+            if cells:
+                eligible.append((profile, cells))
+        if not eligible:
+            return None
+        profile_index = self._derived_index(
+            decision, "profile:CHEW", len(eligible)
+        )
+        profile, cells = eligible[profile_index]
+        cell_index = self._derived_index(decision, "cell:CHEW", len(cells))
+        row_index, column_index, mutated = cells[cell_index]
+        return profile, row_index, column_index, mutated
+
+    def _chew(
+        self,
+        decision: Decision,
+        result: LogicalResult,
+        choice: tuple[str, int, int, Any],
+    ) -> LogicalResult:
+        profile, row_index, column_index, mutated = choice
+        rows = list(result.rows)
+        row = list(rows[row_index])
+        row[column_index] = mutated
+        rows[row_index] = tuple(row)
+        self._event(
+            decision,
+            fault="CHEW",
+            outcome="value_corrupted",
+            details={
+                "row_index": row_index,
+                "column_index": column_index,
+                "profile": profile,
+            },
+        )
+        return LogicalResult(list(result.columns), rows, result.rowcount)
+
+    def _wrong_count(
+        self, decision: Decision, result: LogicalResult
+    ) -> LogicalResult:
+        actual = len(result.rows)
+        derived = self.decisions.derive(decision.decision_key, "count:WRONG_COUNT")
+        magnitude = (
+            int.from_bytes(derived[1:9], "big") % self.policy.wrong_count_max_delta
+        ) + 1
+        delta = magnitude if actual == 0 or derived[0] % 2 == 0 else -magnitude
+        reported = max(0, actual + delta)
+        self._event(
+            decision,
+            fault="WRONG_COUNT",
+            outcome="rowcount_misreported",
+            details={
+                "actual_rowcount": actual,
+                "reported_rowcount": reported,
+            },
+        )
+        return LogicalResult(list(result.columns), list(result.rows), reported)
+
+
+_INELIGIBLE = object()
+
+
+def _chew_value(profile: str, value: Any) -> Any:
+    if profile == "utf8_truncate":
+        return value[:-1] if isinstance(value, str) and value else _INELIGIBLE
+    if profile == "precision_loss":
+        if isinstance(value, Decimal) and value.is_finite():
+            try:
+                rounded = value.quantize(Decimal(1))
+            except InvalidOperation:
+                return _INELIGIBLE
+            return rounded if rounded != value else _INELIGIBLE
+        if isinstance(value, float) and math.isfinite(value):
+            rounded = float(round(value))
+            return rounded if rounded != value else _INELIGIBLE
+        return _INELIGIBLE
+    if profile == "nullify":
+        return None if value is not None else _INELIGIBLE
+    raise AssertionError(f"unvalidated CHEW profile: {profile}")
