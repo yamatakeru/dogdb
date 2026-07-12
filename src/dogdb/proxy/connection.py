@@ -17,6 +17,7 @@ from dogdb.core.event_log import Event, EventLog
 from dogdb.core.faults import (
     BEFORE_EXECUTE_PRIORITY,
     KNOWN_FAULTS,
+    ROWCOUNT_VISIBLE_FAULTS,
     ON_RESULT_PRIORITY,
     FaultEngine,
     FaultPolicy,
@@ -428,11 +429,6 @@ class DuckDBProxy(_EngineBackedSurface):
         )
 
 
-_ROWCOUNT_VISIBLE_FAULTS = frozenset(
-    {"FALSE_EMPTY", "TAIL_CHASE", "ECHO", "PAGE_HOLE", "WRONG_COUNT"}
-)
-
-
 class CursorProxy:
     """SQLite-faithful cursor surface with an intervention-backed result slot."""
 
@@ -455,11 +451,10 @@ class CursorProxy:
         new_events = self._engine._events.events()[event_count:]
         # Native sqlite3 reports -1 for SELECT rowcount regardless of fetch
         # state; only faults whose declared symptom involves the result count
-        # surface through rowcount. This fault set is provisional until the
-        # fault-taxonomy change closes the vocabulary.
+        # surface through rowcount, as declared by the fault taxonomy.
         count_intervened = any(
             event.event_type == "fault_injected"
-            and event.fault in _ROWCOUNT_VISIBLE_FAULTS
+            and event.fault in ROWCOUNT_VISIBLE_FAULTS
             for event in new_events
         )
         self._reported_rowcount = (

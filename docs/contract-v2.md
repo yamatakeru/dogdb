@@ -37,30 +37,41 @@ wall-clock、OS 乱数、Python の組み込み `hash()` を決定へ使って�
 | `event:<seq>:<event-name>` | event ID |
 | `treasure:<row-index>` | treasure ID |
 
+`category` と `severity` は障害の説明属性であり、上の決定タグ表および
+decision key の導出入力には加えない。taxonomy の追加によって
+`POLICY_VERSION` や既存の決定キーを変更してはならない。
+
 ## fault 合成規則
 
 1操作へ適用する fault は最大1つとする。候補は次の固定全順序で評価し、前提条件を満たし、かつ発火した最初の1件だけを適用する。未指定の障害の base weight は0である。
 
-| order | phase | classification | fault |
-|---:|---|---|---|
-| 1 | `before_execute` | failure injection | BARK |
-| 2 | `before_execute` | failure injection | GUARD_BOWL |
-| 3 | `before_execute` | failure injection | IGNORE |
-| 4 | `before_execute` | temporal | SLOTH |
-| 5 | `on_result` | failure injection | NO_DROP |
-| 6 | `on_result` | failure injection | STASH（error mode） |
-| 7 | `on_result` | silent / shape | STASH（missing mode） |
-| 8 | `on_result` | silent / shape | FALSE_EMPTY |
-| 9 | `on_result` | silent / shape | TAIL_CHASE |
-| 10 | `on_result` | silent / shape | PAGE_HOLE |
-| 11 | `on_result` | silent / shape | ECHO |
-| 12 | `on_result` | silent / shape | SHUFFLE |
-| 13 | `on_result` | silent / value | TANGLED_LEASH |
-| 14 | `on_result` | silent / value | CHEW |
-| 15 | `on_result` | silent / value | WRONG_COUNT |
-| 16 | `on_result` | silent / state | OLD_BONE |
+| order | phase | category | severity | fault |
+|---:|---|---|---|---|
+| 1 | `before_execute` | `failure_injection` | `error` | BARK |
+| 2 | `before_execute` | `failure_injection` | `error` | GUARD_BOWL |
+| 3 | `before_execute` | `failure_injection` | `error` | IGNORE |
+| 4 | `before_execute` | `temporal` | `delay` | SLOTH |
+| 5 | `on_result` | `failure_injection` | `error` | NO_DROP |
+| 6 | `on_result` | `shape` | `error` | STASH（error mode） |
+| 7 | `on_result` | `shape` | `silent_corruption` | STASH（missing mode） |
+| 8 | `on_result` | `shape` | `silent_corruption` | FALSE_EMPTY |
+| 9 | `on_result` | `shape` | `error` | TAIL_CHASE（error mode） |
+| 9 | `on_result` | `shape` | `silent_corruption` | TAIL_CHASE（silent mode） |
+| 10 | `on_result` | `shape` | `silent_corruption` | PAGE_HOLE |
+| 11 | `on_result` | `shape` | `silent_corruption` | ECHO |
+| 12 | `on_result` | `shape` | `silent_corruption` | SHUFFLE |
+| 13 | `on_result` | `value` | `silent_corruption` | TANGLED_LEASH |
+| 14 | `on_result` | `value` | `silent_corruption` | CHEW |
+| 15 | `on_result` | `value` | `silent_corruption` | WRONG_COUNT |
+| 16 | `on_result` | `state` | `silent_corruption` | OLD_BONE |
 
 `before_execute` の failure injection が発火した場合は backend を実行しない。SLOTH は遅延後に backend 実行を続けるが、その操作の fault 枠を消費する。`on_result` は backend 実行後に評価する。
+
+`category` は侵される対象を表し、`failure_injection`、`temporal`、`shape`、
+`value`、`state` の5値に閉じる。`severity` は観測形態を表し、`error`、
+`silent_corruption`、`delay` の3値に閉じる。新しい障害名は「犬の行動 ×
+1語で結果形状が想像できる」ものとし、追加時には上表と実装の一次対応表へ
+`category`、`severity`、rowcount可視性を同時に登録しなければならない。
 
 `max_intervention_rows`（既定 10,000）は materialize 済み結果に `on_result` fault を適用する行数上限であり、取得件数または保持メモリの上限ではない。超過結果を切り詰めてはならない。`on_max_rows="skip"`（既定）では結果を無改変で返し、`on_max_rows="error"` では `limit_exceeded` を記録した後に非 retryable な `DollyLimitError` を送出する。後者も backend 実行および全行 materialize の後に発生する「実行済みなのに例外」の意味論を持つ。
 
@@ -87,6 +98,11 @@ wall-clock、OS 乱数、Python の組み込み `hash()` を決定へ使って�
 | `decision_evaluated` | `phase`, `template_fingerprint`, `parameter_fingerprint`, `occurrence`, `decision_key`, `outcome`, `details` |
 
 `fault_injected` と `treasure_returned` は `schema_version` を除いてv1と同じ必須フィールド集合を持つ。未定義の拡張フィールド、診断用 timestamp、任意の `mood` は replay 比較の対象外とする。writer は単一プロセス・単一インスタンス契約である。reader はv1とv2の混在を受理し、未知の schema version、不正JSON、不正UTF-8、必須フィールド不足の行を警告付きでスキップする。
+
+`fault_injected` は任意フィールドとして `category` と `severity` を持つ。
+両フィールドは必須フィールド集合および replay 比較には含めず、
+`schema_version` は2のままとする。`treasure_returned`、`mood_changed`、
+`limit_exceeded`、`decision_evaluated` には両フィールドを記録しない。
 
 ### warning outcome 語彙
 

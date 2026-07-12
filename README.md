@@ -89,7 +89,16 @@ rowcount = cursor.rowcount
 | 手動 RETURN | house の隠し状態を解除する | replica の追随、可視性回復 |
 | 自動 RETURN | 論理操作数の経過後に宝物を返す | eventual consistency |
 
-注入例外は `DogDBError` の派生型で、`event_id`、`fault`、`phase`、`retryable`、`outcome` を持ちます。バックエンド固有の実エラーはラップしません。
+注入例外は `DogDBError` の派生型で、`event_id`、`fault`、`phase`、`retryable`、`outcome` に加え、読み取り専用の `category` と `severity` を持ちます。バックエンド固有の実エラーはラップしません。イベントログも同じ分類属性を持つため、たとえばサイレント破損だけをテストで抽出できます。
+
+```python
+silent_corruptions = [
+    event
+    for event in conn.dolly.log()
+    if event.severity == "silent_corruption"
+]
+assert all(event.category in {"shape", "value", "state"} for event in silent_corruptions)
+```
 
 ### opt-in状態機能
 
