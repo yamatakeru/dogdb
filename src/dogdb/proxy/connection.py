@@ -59,11 +59,7 @@ class DollyNamespace:
     def _log_return(self, treasure: Treasure, *, phase: str = "manual_return") -> None:
         seq = self._engine._events.next_seq()
         tag = f"event:{seq}:RETURN"
-        event_id = (
-            self._engine._decisions.legacy_id(treasure.decision_key, tag)
-            if phase == "manual_return"
-            else self._engine._decisions.deterministic_id(treasure.decision_key, tag)
-        )
+        event_id = self._engine._decisions.deterministic_id(treasure.decision_key, tag)
         self._engine._events.append(
             event_id=event_id,
             event_type="treasure_returned",

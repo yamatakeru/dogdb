@@ -180,14 +180,9 @@ class FaultEngine:
         probability = self.policy.probability(fault_name)
         if self.mood is not None:
             probability *= self.mood.multiplier(fault_name)
-        if fault_name in {"STASH", "SHUFFLE", "IGNORE"}:
-            value = self.decisions.legacy_unit_interval(
-                decision.decision_key, fault_name
-            )
-        else:
-            value = self.decisions.unit_interval(
-                decision.decision_key, f"fire:{fault_name}"
-            )
+        value = self.decisions.unit_interval(
+            decision.decision_key, f"fire:{fault_name}"
+        )
         return probability > 0 and (
             probability >= 1
             or value < probability
@@ -221,11 +216,7 @@ class FaultEngine:
     ) -> Event:
         next_seq = self.events.next_seq()
         tag = f"event:{next_seq}:{fault}"
-        event_id = (
-            self.decisions.legacy_id(decision.decision_key, tag)
-            if fault in {"STASH", "SHUFFLE", "IGNORE"}
-            else self.decisions.deterministic_id(decision.decision_key, tag)
-        )
+        event_id = self.decisions.deterministic_id(decision.decision_key, tag)
         event = self.events.append(
             event_id=event_id,
             event_type="fault_injected",
@@ -449,13 +440,12 @@ class FaultEngine:
     def _stash(
         self, decision: Decision, result: LogicalResult, *, raises: bool
     ) -> LogicalResult:
-        digest = bytes.fromhex(decision.decision_key.removeprefix("sha256:"))
-        row_index = int.from_bytes(digest[:8], "big") % len(result.rows)
+        row_index = self._derived_index(decision, "rows:STASH", len(result.rows))
         next_seq = self.events.next_seq()
-        event_id = self.decisions.legacy_id(
+        event_id = self.decisions.deterministic_id(
             decision.decision_key, f"event:{next_seq}:STASH"
         )
-        treasure_id = self.decisions.legacy_id(
+        treasure_id = self.decisions.deterministic_id(
             decision.decision_key, f"treasure:{row_index}"
         )
         treasure = Treasure(
@@ -494,8 +484,8 @@ class FaultEngine:
         rows = list(result.rows)
         # Fisher-Yates with each swap derived directly from the decision key.
         for index in range(len(rows) - 1, 0, -1):
-            value = self.decisions.legacy_unit_interval(
-                decision.decision_key, f"SHUFFLE:{index}"
+            value = self.decisions.unit_interval(
+                decision.decision_key, f"perm:SHUFFLE:{index}"
             )
             swap = int(value * (index + 1))
             rows[index], rows[swap] = rows[swap], rows[index]

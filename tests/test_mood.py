@@ -182,9 +182,7 @@ def test_sleepy_multiplier_changes_only_fire_threshold():
         occurrence=occurrence,
         phase="before_execute",
     )
-    threshold = conn._decisions.legacy_unit_interval(
-        decision.decision_key, "IGNORE"
-    )
+    threshold = conn._decisions.unit_interval(decision.decision_key, "fire:IGNORE")
     conn._faults.policy.probabilities["IGNORE"] = threshold / 2
 
     conn._mood.state = "SLEEPY"

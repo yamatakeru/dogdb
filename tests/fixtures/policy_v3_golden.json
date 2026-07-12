@@ -1,7 +1,7 @@
 {
   "IGNORE": {
     "error": {
-      "event_id": "9c9925392bba9e021ee18092729afd07",
+      "event_id": "1bf65d5a33deb1ed5ea9af6e2bf76cbe",
       "fault": "IGNORE",
       "outcome": "not_executed",
       "phase": "before_execute",
@@ -10,16 +10,16 @@
     },
     "events": [
       {
-        "decision_key": "sha256:b7819f437b4f999d34b600591a9c423d2752a0cdbef41ba4ab7cb91c7fabe492",
+        "decision_key": "sha256:4249ec59d8e3b314fe0b99826e087e40a7f9f0edc2e50d27a23c2baaba157adc",
         "details": {},
-        "event_id": "9c9925392bba9e021ee18092729afd07",
+        "event_id": "1bf65d5a33deb1ed5ea9af6e2bf76cbe",
         "event_type": "fault_injected",
         "fault": "IGNORE",
         "occurrence": 1,
         "outcome": "not_executed",
-        "parameter_fingerprint": "hmac-sha256:c96d4de21e4e09c826aed86e3f6cb99434cac60a27ea95c14a20dafc0699366e",
+        "parameter_fingerprint": "hmac-sha256:fc9fb6f7043055e819a25f4b6e34cd4e63195aa21c7d2dd03f95d10829fbbeb2",
         "phase": "before_execute",
-        "schema_version": 1,
+        "schema_version": 2,
         "seq": 1,
         "session_id": "fixture-ignore",
         "template_fingerprint": "sha256:db643e6801062fc2e24724c02746fc7e712f348d64d472d5cdce5641af75514e"
@@ -31,45 +31,76 @@
     "error": null,
     "events": [
       {
-        "decision_key": "sha256:968b0b71fcdba96552b198273b75155539eed8bfcf83aa91a71260a29b123bf3",
+        "decision_key": "sha256:6a54aa995915131280fe16f189c9e0fd04ba8865f2b7263ce00d5f7eed681fce",
         "details": {},
-        "event_id": "ba914a7553e9fba6e7eb2df65a0a4d2e",
+        "event_id": "01f2aa0d5b027fc3586d694de7bb5f3f",
         "event_type": "fault_injected",
         "fault": "SHUFFLE",
         "occurrence": 1,
         "outcome": "rows_reordered",
-        "parameter_fingerprint": "hmac-sha256:279f8a73df4e4fb386916602b62a0b88da70e7bdfd903b58d3e2769af0209778",
+        "parameter_fingerprint": "hmac-sha256:080f9eac2c89a896d4500025f03c9c370f0571c1e7b4f22f367877c834f9fffa",
         "phase": "on_result",
-        "schema_version": 1,
+        "schema_version": 2,
         "seq": 1,
         "session_id": "fixture-shuffle",
         "template_fingerprint": "sha256:db643e6801062fc2e24724c02746fc7e712f348d64d472d5cdce5641af75514e"
       }
     ],
-    "rows": [[0], [3], [4], [1], [2]]
+    "rows": [
+      [
+        3
+      ],
+      [
+        4
+      ],
+      [
+        0
+      ],
+      [
+        2
+      ],
+      [
+        1
+      ]
+    ]
   },
   "STASH": {
     "error": null,
     "events": [
       {
-        "decision_key": "sha256:5cf68be078cb8ba7cb6452499cbda0d8e05c16c776e0905b91a0d2f99bd27221",
+        "decision_key": "sha256:bfdb1221b997181a50042ea18fd27f877f06d1ee6c28120bb1181452b706ddff",
         "details": {
-          "row_indices": [0],
-          "treasure_id": "294a9b872441e120b2866d755102764c"
+          "row_indices": [
+            2
+          ],
+          "treasure_id": "d93e7f64d4cdd51e13860f50a371b441"
         },
-        "event_id": "dfa63b4568ace3a51e8f609e7fda32f4",
+        "event_id": "b78230911c3632f2c378fec2a83a1d6a",
         "event_type": "fault_injected",
         "fault": "STASH",
         "occurrence": 1,
         "outcome": "rows_hidden",
-        "parameter_fingerprint": "hmac-sha256:e440402d28775f2f82793c737e49e9dd2e561afed1e8c5ae09fef8007d4ec40d",
+        "parameter_fingerprint": "hmac-sha256:6a4dd0a70380a7cd55a218d3d51c0347b9f6addb9b6e859789aeb0fcd2b32f39",
         "phase": "on_result",
-        "schema_version": 1,
+        "schema_version": 2,
         "seq": 1,
         "session_id": "fixture-stash",
         "template_fingerprint": "sha256:db643e6801062fc2e24724c02746fc7e712f348d64d472d5cdce5641af75514e"
       }
     ],
-    "rows": [[1], [2], [3], [4]]
+    "rows": [
+      [
+        0
+      ],
+      [
+        1
+      ],
+      [
+        3
+      ],
+      [
+        4
+      ]
+    ]
   }
 }

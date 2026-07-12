@@ -11,7 +11,7 @@ from dogdb.core.fingerprints import parameter_fingerprint, template_fingerprint
 from dogdb.core.models import Decision
 
 
-POLICY_VERSION = "dogdb-v1:normalize=trim+collapse-whitespace+lowercase"
+POLICY_VERSION = "dogdb-v3:normalize=trim+collapse-whitespace+lowercase"
 
 
 class DecisionEngine:
@@ -59,7 +59,7 @@ class DecisionEngine:
 
     @staticmethod
     def derive(decision_key: str, tag: str) -> bytes:
-        """Derive bytes for one v2 purpose using the contract separator."""
+        """Derive bytes for one purpose using the contract separator."""
 
         return hashlib.sha256(f"{decision_key}:{tag}".encode("utf-8")).digest()
 
@@ -71,15 +71,3 @@ class DecisionEngine:
     @classmethod
     def deterministic_id(cls, decision_key: str, tag: str) -> str:
         return cls.derive(decision_key, tag).hex()[:32]
-
-    @staticmethod
-    def legacy_unit_interval(decision_key: str, label: str) -> float:
-        """Preserve the v1 STASH/SHUFFLE/IGNORE decision stream."""
-
-        digest = hashlib.sha256(f"{decision_key}\0{label}".encode()).digest()
-        return int.from_bytes(digest[:8], "big") / 2**64
-
-    @staticmethod
-    def legacy_id(decision_key: str, label: str) -> str:
-        digest = hashlib.sha256(f"{decision_key}\0{label}".encode()).hexdigest()
-        return digest[:32]
