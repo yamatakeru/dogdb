@@ -174,16 +174,16 @@ class _InterventionEngine:
             scoped_select
             and len(result.rows) > self._faults.max_intervention_rows
         )
-        evaluate_on_result = scoped and (
+        evaluate_on_result = scoped_select and (
             (
                 not before_consumed
                 and (
                     self._faults.debug
+                    or oversized_result
                     or self._faults.has_effective_weight(ON_RESULT_PRIORITY)
                 )
             )
             or cache_result
-            or oversized_result
         )
         on_result = None
         if evaluate_on_result:
