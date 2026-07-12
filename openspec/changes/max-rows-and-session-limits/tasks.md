@@ -5,7 +5,7 @@
 - [x] 1.1 `errors.py` に上限例外型（候補: `DollyLimitError(DogDBError)`、`retryable=False`、メッセージに `max_intervention_rows` 調整の案内）を追加する
 - [x] 1.2 `wrap()` に `on_max_rows: str = "skip"` を追加し（許容値検証つき）、`FaultPolicy`／`FaultEngine` へ伝搬する
 - [x] 1.3 `FaultEngine.on_result` の超過分岐に error モードを実装する: `limit_exceeded` イベントを**先に**記録してから例外を送出する
-- [ ] 1.4 error モードのテストを追加する: イベントが `dolly.log()` に残った上で例外が送出され、例外が `event_id` を持つこと（両バックエンド）。実行: `uv run pytest tests/ -k "max_rows or limit"`
+- [x] 1.4 error モードのテストを追加する: イベントが `dolly.log()` に残った上で例外が送出され、例外が `event_id` を持つこと（両バックエンド）。実行: `uv run pytest tests/ -k "max_rows or limit"`
 
 ## 2. 引数改名とエイリアス削除（破壊点）
 
@@ -21,7 +21,7 @@
 
 ## 4. 検証とドキュメント
 
-- [ ] 4.1 既存テストスイート全通過（`uv run pytest`）と `openspec validate max-rows-and-session-limits` の通過を確認する
+- [x] 4.1 既存テストスイート全通過（`uv run pytest`）と `openspec validate max-rows-and-session-limits` の通過を確認する
 - [x] 4.2 README の「限界と安全上の前提」を更新する: 新引数名、「メモリ保護ではない」の明記、`on_max_rows="error"` の紹介（実行済み後の例外である注意つき）、セッションはテスト単位で作り直す指針
 - [x] 4.3 `docs/contract-v2.md` を更新する: `details.limit` 識別子、`limit_exceeded` の outcome 語彙表への error モード追加、旧識別子の歴史注記
 - [ ] 4.4 GitHub issue #5 に完了コメントを残し、統括 #11 のチェックボックスを更新する
