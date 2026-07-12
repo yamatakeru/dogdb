@@ -135,13 +135,12 @@ class DBAPIProxy:
         classification = classify_sql(sql)
         fingerprint = template_fingerprint(sql)
         self._stats.record_classification(fingerprint, classification.kind)
-        unsupported_params = not isinstance(
-            params, Mapping
-        ) and not params_in_fingerprint_domain(params)
+        is_mapping = isinstance(params, Mapping)
+        unsupported_params = not is_mapping and not params_in_fingerprint_domain(params)
         if unsupported_params:
             self._stats.record_passthrough("unsupported_parameter_type")
         if (
-            isinstance(params, Mapping)
+            is_mapping
             or classification.kind is SQLKind.UNKNOWN
             or classification.is_transaction
             or unsupported_params
