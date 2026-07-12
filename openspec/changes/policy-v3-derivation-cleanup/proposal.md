@@ -9,7 +9,7 @@ DecisionEngineにはSTASH・SHUFFLE・IGNORE専用のv1互換導出（`legacy_un
 - `decision.py` の `legacy_unit_interval` / `legacy_id` と、`faults.py`（`_fires` / `_event` / `_stash` / `_shuffle`）・`proxy/connection.py`（`_log_return`）の互換分岐を削除する。
 - determinism specの「乱数導出のdomain separation」要件から、v1互換経路の保持を求める例外文（SHALL）を削除する。
 - `docs/contract-v2.md` からPOLICY_VERSION据え置きの記述と「MVP 導出互換性」節を削除し、policy v3を記載する。`docs/contract-v1.md` は削除せず「歴史的文書・policy v3で失効」とマークする。
-- ゴールデンフィクスチャを**このchangeで1回だけ**再生成し、`test_mvp_compatibility.py` をv3基準線へ付け替える（決定値の意図せぬ変動を検知する回帰網としての価値は基準線が変わっても不変）。W3-b（zero-weight-fast-path）より先行することで、ゴールデンの二度作り直しを避ける。
+- ゴールデンフィクスチャを**このchangeで1回だけ**再生成して `tests/fixtures/policy_v3_golden.json` とし、`test_mvp_compatibility.py` を `tests/test_policy_regression.py`（v3基準線の回帰テスト）へ付け替える（決定値の意図せぬ変動を検知する回帰網としての価値は基準線が変わっても不変）。W3-b（zero-weight-fast-path）より先行することで、ゴールデンの二度作り直しを避ける。
 
 ### Non-goals
 
@@ -30,7 +30,7 @@ DecisionEngineにはSTASH・SHUFFLE・IGNORE専用のv1互換導出（`legacy_un
 ## Impact
 
 - **コード**: `src/dogdb/core/decision.py`（legacyメソッド削除・POLICY_VERSION更新）、`src/dogdb/core/faults.py`（互換分岐4箇所）、`src/dogdb/proxy/connection.py`（`_log_return` の分岐）。`mood.py` はコード変更なしだがPOLICY_VERSION経由で導出値が変わる。
-- **テスト**: `tests/fixtures/mvp_legacy.json` 再生成、`tests/test_mvp_compatibility.py` v3付け替え、`tests/test_mood.py` のlegacy導出参照の更新。他テストにハードコードされた実決定値はない（プレースホルダのみ）。
+- **テスト**: `tests/fixtures/mvp_legacy.json` を `policy_v3_golden.json` として再生成、`tests/test_mvp_compatibility.py` を `test_policy_regression.py` へ改名して付け替え、`tests/test_mood.py` のlegacy導出参照の更新。他テストにハードコードされた実決定値はない（プレースホルダのみ）。
 - **文書**: `docs/contract-v2.md`、`docs/contract-v1.md`。
 - **利用者影響**: v1決定値・イベント列に依存するreplayは再現不能になる（**BREAKING**）。外部利用者はゼロ、リリース前のため破壊的変更ガバナンス（openspec/config.yaml）の通常選択肢として実施。ADR節をdesign.mdに必須で設ける。
 - **依存関係**: W3-b（#8 zero-weight-fast-path）は本changeの完了が前提。
