@@ -6,11 +6,15 @@ import json
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 
-@dataclass(frozen=True, slots=True)
+# Taxonomy properties stay outside the dataclass field set so equality and
+# asdict-based replay signatures continue to compare only the established fields.
+@dataclass(frozen=True, init=False)
 class Event:
+    _category: ClassVar[str | None]
+    _severity: ClassVar[str | None]
     schema_version: int
     event_id: str
     session_id: str
@@ -24,6 +28,49 @@ class Event:
     decision_key: str | None = None
     outcome: str | None = None
     details: dict[str, Any] | None = None
+
+    def __init__(
+        self,
+        *,
+        schema_version: int,
+        event_id: str,
+        session_id: str,
+        seq: int,
+        event_type: str,
+        fault: str | None = None,
+        phase: str | None = None,
+        template_fingerprint: str | None = None,
+        parameter_fingerprint: str | None = None,
+        occurrence: int | None = None,
+        decision_key: str | None = None,
+        outcome: str | None = None,
+        details: dict[str, Any] | None = None,
+        category: str | None = None,
+        severity: str | None = None,
+    ) -> None:
+        object.__setattr__(self, "schema_version", schema_version)
+        object.__setattr__(self, "event_id", event_id)
+        object.__setattr__(self, "session_id", session_id)
+        object.__setattr__(self, "seq", seq)
+        object.__setattr__(self, "event_type", event_type)
+        object.__setattr__(self, "fault", fault)
+        object.__setattr__(self, "phase", phase)
+        object.__setattr__(self, "template_fingerprint", template_fingerprint)
+        object.__setattr__(self, "parameter_fingerprint", parameter_fingerprint)
+        object.__setattr__(self, "occurrence", occurrence)
+        object.__setattr__(self, "decision_key", decision_key)
+        object.__setattr__(self, "outcome", outcome)
+        object.__setattr__(self, "details", details)
+        object.__setattr__(self, "_category", category)
+        object.__setattr__(self, "_severity", severity)
+
+    @property
+    def category(self) -> str | None:
+        return self._category
+
+    @property
+    def severity(self) -> str | None:
+        return self._severity
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> Event:
@@ -56,12 +103,15 @@ class Event:
         details = value.get("details")
         if details is not None and not isinstance(details, dict):
             raise ValueError("details must be an object")
+        fields = {
+            field: value[field]
+            for field in cls.__dataclass_fields__
+            if field in value
+        }
         return cls(
-            **{
-                field: value[field]
-                for field in cls.__dataclass_fields__
-                if field in value
-            }
+            **fields,
+            category=value.get("category"),
+            severity=value.get("severity"),
         )
 
 
@@ -76,6 +126,8 @@ _STRING_FIELDS = {
     "parameter_fingerprint",
     "decision_key",
     "outcome",
+    "category",
+    "severity",
 }
 _V1_FIELDS = _CORE_FIELDS | {
     "fault",
@@ -142,6 +194,10 @@ class EventLog:
                 payload = {
                     key: value for key, value in asdict(event).items() if value is not None
                 }
+                if event.category is not None:
+                    payload["category"] = event.category
+                if event.severity is not None:
+                    payload["severity"] = event.severity
                 stream.write(json.dumps(payload, separators=(",", ":")) + "\n")
         return event
 

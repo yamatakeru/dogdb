@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Callable
 
 from dogdb.core.decision import DecisionEngine
@@ -49,6 +50,54 @@ KNOWN_FAULTS = frozenset(
         "WRONG_COUNT",
         "OLD_BONE",
     }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FaultTaxonomy:
+    category: str
+    severity: str
+    rowcount_visible: bool = False
+
+
+FAULT_TAXONOMY: Mapping[tuple[str, str | None], FaultTaxonomy] = MappingProxyType(
+    {
+        ("BARK", None): FaultTaxonomy("failure_injection", "error"),
+        ("GUARD_BOWL", None): FaultTaxonomy("failure_injection", "error"),
+        ("IGNORE", None): FaultTaxonomy("failure_injection", "error"),
+        ("SLOTH", None): FaultTaxonomy("temporal", "delay"),
+        ("NO_DROP", None): FaultTaxonomy("failure_injection", "error"),
+        ("STASH", "error"): FaultTaxonomy("shape", "error"),
+        ("STASH", "missing"): FaultTaxonomy("shape", "silent_corruption"),
+        ("FALSE_EMPTY", None): FaultTaxonomy(
+            "shape", "silent_corruption", rowcount_visible=True
+        ),
+        ("TAIL_CHASE", "error"): FaultTaxonomy(
+            "shape", "error", rowcount_visible=True
+        ),
+        ("TAIL_CHASE", "silent"): FaultTaxonomy(
+            "shape", "silent_corruption", rowcount_visible=True
+        ),
+        ("PAGE_HOLE", None): FaultTaxonomy(
+            "shape", "silent_corruption", rowcount_visible=True
+        ),
+        ("ECHO", None): FaultTaxonomy(
+            "shape", "silent_corruption", rowcount_visible=True
+        ),
+        ("SHUFFLE", None): FaultTaxonomy("shape", "silent_corruption"),
+        ("TANGLED_LEASH", None): FaultTaxonomy("value", "silent_corruption"),
+        ("CHEW", None): FaultTaxonomy("value", "silent_corruption"),
+        ("WRONG_COUNT", None): FaultTaxonomy(
+            "value", "silent_corruption", rowcount_visible=True
+        ),
+        ("OLD_BONE", None): FaultTaxonomy("state", "silent_corruption"),
+    }
+)
+
+ROWCOUNT_VISIBLE_FAULTS = frozenset(
+    fault
+    for (fault, _mode), taxonomy in FAULT_TAXONOMY.items()
+    if taxonomy.rowcount_visible
 )
 
 BEFORE_EXECUTE_PRIORITY = ("BARK", "GUARD_BOWL", "IGNORE", "SLOTH")
@@ -175,6 +224,14 @@ class FaultEngine:
         self.stale_cache = stale_cache
         self.intervention_callback = intervention_callback
 
+    def _taxonomy(self, fault: str) -> FaultTaxonomy:
+        mode = None
+        if fault == "STASH":
+            mode = self.policy.stash_mode
+        elif fault == "TAIL_CHASE":
+            mode = self.policy.tail_chase_mode
+        return FAULT_TAXONOMY[(fault, mode)]
+
     def _fires(self, decision: Decision, fault: str) -> bool:
         fault_name = fault.removesuffix("_ERROR")
         probability = self.policy.probability(fault_name)
@@ -225,6 +282,7 @@ class FaultEngine:
         outcome: str,
         details: dict[str, object],
     ) -> Event:
+        taxonomy = self._taxonomy(fault)
         next_seq = self.events.next_seq()
         tag = f"event:{next_seq}:{fault}"
         event_id = self.decisions.deterministic_id(decision.decision_key, tag)
@@ -239,6 +297,8 @@ class FaultEngine:
             decision_key=decision.decision_key,
             outcome=outcome,
             details=details,
+            category=taxonomy.category,
+            severity=taxonomy.severity,
         )
         if self.intervention_callback is not None:
             self.intervention_callback(decision.template_fingerprint)
@@ -295,6 +355,8 @@ class FaultEngine:
             phase=decision.phase,
             retryable=True,
             outcome="not_executed",
+            category=event.category,
+            severity=event.severity,
         )
 
     def on_result(
@@ -316,6 +378,8 @@ class FaultEngine:
                     phase=decision.phase,
                     retryable=False,
                     outcome="error",
+                    category=None,
+                    severity=None,
                 )
             return result
 
@@ -335,6 +399,8 @@ class FaultEngine:
                 phase=decision.phase,
                 retryable=True,
                 outcome="response_lost",
+                category=event.category,
+                severity=event.severity,
             )
 
         sticky = self.house.active_for(decision.template_fingerprint)
@@ -487,6 +553,8 @@ class FaultEngine:
                 phase=decision.phase,
                 retryable=True,
                 outcome="read_partial",
+                category=event.category,
+                severity=event.severity,
             )
         rows = result.rows[:row_index] + result.rows[row_index + 1 :]
         return LogicalResult(result.columns, rows, len(rows))
@@ -546,6 +614,8 @@ class FaultEngine:
                 phase=decision.phase,
                 retryable=True,
                 outcome="read_partial",
+                category=event.category,
+                severity=event.severity,
                 delivered_rows=delivered,
             )
         rows = result.rows[:delivered]
