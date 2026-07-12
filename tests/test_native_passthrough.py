@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 import dogdb
+from dogdb.proxy import CursorProxy
 
 
 class TrackingSQLiteConnection(sqlite3.Connection):
@@ -73,7 +74,7 @@ def test_sqlite_cursor_uses_proxy_without_reaching_native_connection():
 
     cursor = conn.cursor()
 
-    assert type(cursor).__name__ == "CursorProxy"
+    assert isinstance(cursor, CursorProxy)
     assert raw.native_accesses.get("cursor", 0) == 0
     raw.close()
 
@@ -115,7 +116,7 @@ def test_native_passthrough_keeps_sqlite_cursor_on_injected_surface():
 
     cursor = conn.cursor()
 
-    assert type(cursor).__name__ == "CursorProxy"
+    assert isinstance(cursor, CursorProxy)
     assert conn.dolly.stats()["escape_hatches"].get("cursor", 0) == 0
     conn.close()
 

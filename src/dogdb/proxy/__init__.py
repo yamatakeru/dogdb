@@ -2,7 +2,6 @@
 
 from dogdb.proxy.connection import (
     CursorProxy,
-    DBAPIProxy,
     DuckDBProxy,
     SQLiteProxy,
     connect,
@@ -11,7 +10,6 @@ from dogdb.proxy.connection import (
 
 __all__ = [
     "CursorProxy",
-    "DBAPIProxy",
     "DuckDBProxy",
     "SQLiteProxy",
     "connect",

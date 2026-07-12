@@ -218,8 +218,8 @@ class _InterventionEngine:
         return LogicalResult([], [], getattr(cursor, "rowcount", -1))
 
 
-class DuckDBProxy:
-    """DuckDB-faithful connection surface backed by the intervention engine."""
+class _EngineBackedSurface:
+    """Private intervention-engine plumbing shared by public surfaces."""
 
     def __init__(
         self,
@@ -232,21 +232,7 @@ class DuckDBProxy:
         self._engine = _InterventionEngine(connection, adapter, **engine_options)
         self._connection = connection
         self._allow_native_passthrough = allow_native_passthrough
-        self._result = LogicalResult([], [], -1)
-        self._offset = 0
         self.dolly = self._engine.dolly
-
-    def execute(
-        self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
-    ) -> DuckDBProxy:
-        self._result = self._engine.execute(sql, params)
-        self._offset = 0
-        return self
-
-    def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DuckDBProxy:
-        self._result = self._engine.executemany(sql, params)
-        self._offset = 0
-        return self
 
     @property
     def _adapter(self) -> Adapter:
@@ -263,10 +249,6 @@ class DuckDBProxy:
     @property
     def _events(self) -> EventLog:
         return self._engine._events
-
-    @property
-    def _house(self) -> HouseLedger:
-        return self._engine._house
 
     @property
     def _faults(self) -> FaultEngine:
@@ -291,6 +273,58 @@ class DuckDBProxy:
     @property
     def _logical_tick(self) -> int | None:
         return self._engine._logical_tick
+
+    def _native_passthrough_or_guidance(self, name: str) -> tuple[bool, Any]:
+        if self._allow_native_passthrough:
+            native_attr = getattr(self._connection, name)
+            if not callable(native_attr):
+                return True, native_attr
+            bucket = name if name in self._adapter.sql_capable_attrs else "other"
+
+            def call_native(*args: Any, **kwargs: Any) -> Any:
+                self._stats.record_escape_hatch(bucket)
+                return native_attr(*args, **kwargs)
+
+            return True, call_native
+        if name in self._adapter.sql_capable_attrs:
+            raise AttributeError(
+                f"DogDB cannot inject faults through native connection attribute {name!r}. "
+                "Use execute() or pass allow_native_passthrough=True to wrap()."
+            )
+        return False, None
+
+
+class DuckDBProxy(_EngineBackedSurface):
+    """DuckDB-faithful connection surface backed by the intervention engine."""
+
+    def __init__(
+        self,
+        connection: Any,
+        adapter: Adapter,
+        *,
+        allow_native_passthrough: bool,
+        **engine_options: Any,
+    ) -> None:
+        super().__init__(
+            connection,
+            adapter,
+            allow_native_passthrough=allow_native_passthrough,
+            **engine_options,
+        )
+        self._result = LogicalResult([], [], -1)
+        self._offset = 0
+
+    def execute(
+        self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
+    ) -> DuckDBProxy:
+        self._result = self._engine.execute(sql, params)
+        self._offset = 0
+        return self
+
+    def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DuckDBProxy:
+        self._result = self._engine.executemany(sql, params)
+        self._offset = 0
+        return self
 
     def fetchall(self) -> list[tuple[Any, ...]]:
         rows = self._result.rows[self._offset :]
@@ -340,22 +374,9 @@ class DuckDBProxy:
         self.close()
 
     def __getattr__(self, name: str) -> Any:
-        if self._allow_native_passthrough:
-            native_attr = getattr(self._connection, name)
-            if not callable(native_attr):
-                return native_attr
-            bucket = name if name in self._adapter.sql_capable_attrs else "other"
-
-            def call_native(*args: Any, **kwargs: Any) -> Any:
-                self._stats.record_escape_hatch(bucket)
-                return native_attr(*args, **kwargs)
-
-            return call_native
-        if name in self._adapter.sql_capable_attrs:
-            raise AttributeError(
-                f"DogDB cannot inject faults through native connection attribute {name!r}. "
-                "Use execute() or pass allow_native_passthrough=True to wrap()."
-            )
+        handled, value = self._native_passthrough_or_guidance(name)
+        if handled:
+            return value
         raise AttributeError(
             f"DuckDBProxy has no supported attribute {name!r}. Supported public API: "
             "execute(), executemany(), fetchall(), fetchone(), fetchmany(), description, "
@@ -453,7 +474,7 @@ class CursorProxy:
         return self._reported_rowcount
 
 
-class SQLiteProxy:
+class SQLiteProxy(_EngineBackedSurface):
     """SQLite-faithful connection surface backed by the intervention engine."""
 
     def __init__(
@@ -464,10 +485,12 @@ class SQLiteProxy:
         allow_native_passthrough: bool,
         **engine_options: Any,
     ) -> None:
-        self._engine = _InterventionEngine(connection, adapter, **engine_options)
-        self._connection = connection
-        self._allow_native_passthrough = allow_native_passthrough
-        self.dolly = self._engine.dolly
+        super().__init__(
+            connection,
+            adapter,
+            allow_native_passthrough=allow_native_passthrough,
+            **engine_options,
+        )
 
     def execute(
         self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
@@ -481,50 +504,6 @@ class SQLiteProxy:
 
     def cursor(self) -> CursorProxy:
         return CursorProxy(self._engine)
-
-    @property
-    def _adapter(self) -> Adapter:
-        return self._engine._adapter
-
-    @_adapter.setter
-    def _adapter(self, adapter: Adapter) -> None:
-        self._engine._adapter = adapter
-
-    @property
-    def _decisions(self) -> DecisionEngine:
-        return self._engine._decisions
-
-    @property
-    def _events(self) -> EventLog:
-        return self._engine._events
-
-    @property
-    def _house(self) -> HouseLedger:
-        return self._engine._house
-
-    @property
-    def _faults(self) -> FaultEngine:
-        return self._engine._faults
-
-    @property
-    def _mood(self) -> MoodEngine | None:
-        return self._engine._mood
-
-    @property
-    def _auto_return(self) -> AutoReturnScheduler | None:
-        return self._engine._auto_return
-
-    @property
-    def _stale_cache(self) -> StaleReadCache | None:
-        return self._engine._stale_cache
-
-    @property
-    def _stats(self) -> StatsTracker:
-        return self._engine._stats
-
-    @property
-    def _logical_tick(self) -> int | None:
-        return self._engine._logical_tick
 
     @property
     def in_transaction(self) -> bool:
@@ -565,32 +544,15 @@ class SQLiteProxy:
                 f"SQLiteProxy has no connection-level {name!r}; SQLite results belong "
                 "to cursors. Use conn.execute(sql).fetchall() or cursor().execute(sql)."
             )
-        if self._allow_native_passthrough:
-            native_attr = getattr(self._connection, name)
-            if not callable(native_attr):
-                return native_attr
-            bucket = name if name in self._adapter.sql_capable_attrs else "other"
-
-            def call_native(*args: Any, **kwargs: Any) -> Any:
-                self._stats.record_escape_hatch(bucket)
-                return native_attr(*args, **kwargs)
-
-            return call_native
-        if name in self._adapter.sql_capable_attrs:
-            raise AttributeError(
-                f"DogDB cannot inject faults through native connection attribute {name!r}. "
-                "Use execute() or pass allow_native_passthrough=True to wrap()."
-            )
+        handled, value = self._native_passthrough_or_guidance(name)
+        if handled:
+            return value
         raise AttributeError(
             f"SQLiteProxy has no supported attribute {name!r}. Supported public API: "
             "execute(), executemany(), cursor(), in_transaction, commit(), rollback(), "
             "close(), dolly, and context management. Pass allow_native_passthrough=True "
             "to wrap() for intentional native access."
         )
-
-
-# Kept as a compatibility type name for the pre-split DuckDB-like surface.
-DBAPIProxy = DuckDBProxy
 
 
 def _adapter_for(connection: Any) -> Adapter:
