@@ -11,6 +11,10 @@ from dogdb.core.models import LogicalResult
 
 
 class SQLiteAdapter:
+    sql_capable_attrs: frozenset[str] = frozenset(
+        {"cursor", "execute", "executemany", "executescript"}
+    )
+
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
 

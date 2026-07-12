@@ -95,6 +95,12 @@ STASH / SHUFFLE / IGNORE は v1 の決定値とイベント列を維持するた
 
 `limit_exceeded.details.limit` は現在 `max_rows`、`configured` は設定上限、`observed` は materialize された行数である。生SQL、生パラメータ、生行値をイベントへ含めてはならない。
 
+## native passthrough と escape hatch 統計
+
+接続proxyの未定義属性は既定で生接続へ転送せず、`AttributeError`で拒否する。`allow_native_passthrough=True`を明示した場合だけ転送を許可し、callableな属性が実際に呼ばれた時点で`stats()["escape_hatches"]`を増分する。アダプタが宣言したSQL実行能力のある入口は属性名ごとに、それ以外のcallableは`other`に集約する。属性取得や`hasattr`だけでは増分しない。また、生SQL、生パラメータ、呼び出し引数は統計に保持しない。
+
+escape hatchの値はnative methodの**呼び出し回数**であり、backendが実行したSQL数ではない。とくにDuckDBの`sql()`は遅延評価されるrelationを返すため、`sql`の呼び出し回数と実際のSQL実行回数は一致するとは限らない。転送経路は障害注入、イベント記録、論理時計、occurrence更新の対象外である。
+
 ## SQL、scope、backend の境界
 
 core は backend ライブラリを import してはならず、backend 由来の例外を変換してはならない。DogDB はSQLを書き換えず、分類済み操作の論理結果だけを加工する。

@@ -10,6 +10,10 @@ from dogdb.core.models import LogicalResult
 
 
 class DuckDBAdapter:
+    sql_capable_attrs: frozenset[str] = frozenset(
+        {"cursor", "execute", "executemany", "query", "sql", "table"}
+    )
+
     def __init__(self, connection: Any) -> None:
         self.connection = connection
 
