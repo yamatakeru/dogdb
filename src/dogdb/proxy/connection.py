@@ -251,7 +251,7 @@ def _describe(result: LogicalResult) -> list[tuple[Any, ...]]:
     column_types = result.column_types or [None] * len(result.columns)
     return [
         (name, column_type, None, None, None, None, None)
-        for name, column_type in zip(result.columns, column_types)
+        for name, column_type in zip(result.columns, column_types, strict=True)
     ]
 
 
