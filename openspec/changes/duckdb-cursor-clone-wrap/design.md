@@ -35,6 +35,7 @@ duckdb の `cursor()` は sqlite3 と異なり、新しい DuckDBPyConnection（
 - 代替案A（クローンごとに新 engine を生成し、DecisionEngine 等のコアオブジェクトを注入して共有）: `_logical_tick`（論理時計）や今後 engine に置かれる状態が engine ごとに分裂し、「介入コアの共有」（dbapi-proxy spec「接続のラップ」の MUST）が構造的に壊れやすい。却下。
 - 代替案B（既存の `_adapter` setter で共有 engine のアダプタを差し替える）: 親子を交互に使う操作列（決定性テストの中心ケース）で実行先が競合する。却下。
 - 採用案: engine は介入コアの所有に純化し、実行先は操作ごとに呼び出し表面から受け取る（表面が自身のアダプタを保持）。SQLiteProxy/CursorProxy は従来どおり親のアダプタを渡すだけで挙動不変。
+- 徹底: `executemany` も同じ形に統一する。アダプタ契約に `executemany(sql, params) -> LogicalResult` を追加し、engine の実行入口は execute / executemany とも「アダプタを受け取る」で対称にする（生 connection を受ける別経路を残さない）。これにより表面は実行先としてアダプタだけを保持すればよい。
 
 ### D2: `cursor()` の返り値は `DuckDBProxy` そのもの（新クラスを作らない）
 

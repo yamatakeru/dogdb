@@ -55,8 +55,7 @@ decision key の導出入力には加えない。taxonomy の追加によって
 | 6 | `on_result` | `shape` | `error` | STASH（error mode） |
 | 7 | `on_result` | `shape` | `silent_corruption` | STASH（missing mode） |
 | 8 | `on_result` | `shape` | `silent_corruption` | FALSE_EMPTY |
-| 9 | `on_result` | `shape` | `error` | TAIL_CHASE（error mode） |
-| 9 | `on_result` | `shape` | `silent_corruption` | TAIL_CHASE（silent mode） |
+| 9 | `on_result` | `shape` | `error`（error mode）／`silent_corruption`（silent mode） | TAIL_CHASE |
 | 10 | `on_result` | `shape` | `silent_corruption` | PAGE_HOLE |
 | 11 | `on_result` | `shape` | `silent_corruption` | ECHO |
 | 12 | `on_result` | `shape` | `silent_corruption` | SHUFFLE |
@@ -65,7 +64,7 @@ decision key の導出入力には加えない。taxonomy の追加によって
 | 15 | `on_result` | `value` | `silent_corruption` | WRONG_COUNT |
 | 16 | `on_result` | `state` | `silent_corruption` | OLD_BONE |
 
-`before_execute` の failure injection が発火した場合は backend を実行しない。SLOTH は遅延後に backend 実行を続けるが、その操作の fault 枠を消費する。`on_result` は backend 実行後に評価する。
+`before_execute` の failure injection が発火した場合は backend を実行しない。SLOTH は遅延後に backend 実行を続けるが、その操作の fault 枠を消費する。`on_result` は backend 実行後に評価する。STASH はエラーモードと行欠落モードが別個の評価候補（order 6・7）だが、TAIL_CHASE は単一の評価候補（order 9）であり、モードは適用時の効果と分類のみを分ける。
 
 `category` は侵される対象を表し、`failure_injection`、`temporal`、`shape`、
 `value`、`state` の5値に閉じる。`severity` は観測形態を表し、`error`、

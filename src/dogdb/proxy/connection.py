@@ -240,11 +240,19 @@ class _InterventionEngine:
         return True
 
     def executemany(
-        self, connection: Any, sql: str, params: Sequence[Sequence[Any]]
+        self, adapter: Adapter, sql: str, params: Sequence[Sequence[Any]]
     ) -> LogicalResult:
         self._begin_operation()
-        cursor = connection.executemany(sql, params)
-        return LogicalResult([], [], getattr(cursor, "rowcount", -1))
+        return adapter.executemany(sql, params)
+
+
+def _describe(result: LogicalResult) -> list[tuple[Any, ...]]:
+    """Rebuild DB-API description entries: post-fault names, position-bound types."""
+    column_types = result.column_types or [None] * len(result.columns)
+    return [
+        (name, column_type, None, None, None, None, None)
+        for name, column_type in zip(result.columns, column_types)
+    ]
 
 
 class _EngineBackedSurface:
@@ -351,7 +359,7 @@ class DuckDBProxy(_EngineBackedSurface):
         return self
 
     def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DuckDBProxy:
-        self._result = self._engine.executemany(self._connection, sql, params)
+        self._result = self._engine.executemany(self._adapter, sql, params)
         self._offset = 0
         return self
 
@@ -377,11 +385,7 @@ class DuckDBProxy(_EngineBackedSurface):
     def description(self) -> list[tuple[Any, ...]] | None:
         if not self._result.columns:
             return None
-        column_types = self._result.column_types or [None] * len(self._result.columns)
-        return [
-            (name, column_type, None, None, None, None, None)
-            for name, column_type in zip(self._result.columns, column_types)
-        ]
+        return _describe(self._result)
 
     @property
     def rowcount(self) -> int:
@@ -432,11 +436,8 @@ class DuckDBProxy(_EngineBackedSurface):
 class CursorProxy:
     """SQLite-faithful cursor surface with an intervention-backed result slot."""
 
-    def __init__(
-        self, engine: _InterventionEngine, connection: Any, adapter: Adapter
-    ) -> None:
+    def __init__(self, engine: _InterventionEngine, adapter: Adapter) -> None:
         self._engine = engine
-        self._connection = connection
         self._adapter = adapter
         self._result = LogicalResult([], [], -1)
         self._offset = 0
@@ -467,7 +468,7 @@ class CursorProxy:
     def executemany(
         self, sql: str, params: Sequence[Sequence[Any]]
     ) -> CursorProxy:
-        self._result = self._engine.executemany(self._connection, sql, params)
+        self._result = self._engine.executemany(self._adapter, sql, params)
         self._offset = 0
         self._reported_rowcount = self._result.rowcount
         return self
@@ -500,15 +501,10 @@ class CursorProxy:
         return row
 
     @property
-    def description(
-        self,
-    ) -> tuple[tuple[str, None, None, None, None, None, None], ...] | None:
+    def description(self) -> tuple[tuple[Any, ...], ...] | None:
         if not self._result.columns:
             return None
-        return tuple(
-            (name, None, None, None, None, None, None)
-            for name in self._result.columns
-        )
+        return tuple(_describe(self._result))
 
     @property
     def rowcount(self) -> int:
@@ -544,7 +540,7 @@ class SQLiteProxy(_EngineBackedSurface):
         return self.cursor().executemany(sql, params)
 
     def cursor(self) -> CursorProxy:
-        return CursorProxy(self._engine, self._connection, self._adapter)
+        return CursorProxy(self._engine, self._adapter)
 
     @property
     def in_transaction(self) -> bool:
