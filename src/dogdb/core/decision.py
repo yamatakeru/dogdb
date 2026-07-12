@@ -4,14 +4,28 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
-from dogdb.core.fingerprints import parameter_fingerprint, template_fingerprint
+from dogdb.core.fingerprints import (
+    parameter_fingerprint,
+    template_fingerprint as fingerprint_template,
+)
 from dogdb.core.models import Decision
 
 
 POLICY_VERSION = "dogdb-v3:normalize=trim+collapse-whitespace+lowercase"
+
+
+class _MemoizedParameterFingerprint:
+    def __init__(self, supplier: Callable[[], str]) -> None:
+        self._supplier = supplier
+        self._value: str | None = None
+
+    def __call__(self) -> str:
+        if self._value is None:
+            self._value = self._supplier()
+        return self._value
 
 
 class DecisionEngine:
@@ -30,17 +44,29 @@ class DecisionEngine:
             f"{POLICY_VERSION}\0{self.seed}\0{session_id}".encode()
         ).digest()
 
-    def begin(self, sql: str, params: Sequence[Any] | None) -> tuple[str, str, int]:
-        template = template_fingerprint(sql)
+    def begin(
+        self,
+        sql: str,
+        params: Sequence[Any] | None,
+        *,
+        template_fingerprint: str | None = None,
+    ) -> tuple[str, _MemoizedParameterFingerprint, int]:
+        template = (
+            template_fingerprint
+            if template_fingerprint is not None
+            else fingerprint_template(sql)
+        )
         self._occurrences[template] += 1
-        parameter = parameter_fingerprint(params, self._hmac_key)
+        parameter = _MemoizedParameterFingerprint(
+            lambda: parameter_fingerprint(params, self._hmac_key)
+        )
         return template, parameter, self._occurrences[template]
 
     def decide(
         self,
         *,
         template: str,
-        parameter: str,
+        parameter: str | Callable[[], str],
         occurrence: int,
         phase: str,
     ) -> Decision:
@@ -53,7 +79,7 @@ class DecisionEngine:
             phase,
         ]
         if self.include_params:
-            parts.append(parameter)
+            parts.append(parameter() if callable(parameter) else parameter)
         digest = hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
         return Decision(template, parameter, occurrence, phase, f"sha256:{digest}")
 
