@@ -33,4 +33,4 @@
 - **テスト**: 既存全テストは無変更で通ること自体が合格ゲート（byte-for-byte一致）。追加はfast path固有の性質テスト（重み0→非0の実行時変更後もdecision keyが純関数として不変、include_params=True・debug=True・stale cache有効時の各経路でイベントが従来どおり出る）。
 - **ベンチマーク**: `benchmarks/zero_weight_overhead.py` を新設（CI断言にはしない。測定条件を固定し、PRに実測値を記録する）。
 - **制約**: `FaultPolicy` は実行時可変（プロパティsetterが公開されテストで実使用）のため、実効重みの判定は操作ごと・phaseごとに評価し、wrap時にキャッシュしてはならない。
-- **依存関係**: W3-a（policy-v3-derivation-cleanup）の完了が前提（ゴールデン基準線の確定後に着手。先にやるとゴールデンを二度作り直す）。W1-bの素通し確定にも依存（済み）。
+- **依存関係**: W3-a（policy-v3-derivation-cleanup）の完了が前提（済み——PR #14マージ。v3ゴールデン基準線は `tests/test_policy_regression.py` + `tests/fixtures/policy_v3_golden.json` で確定）。W1-bの素通し確定にも依存（済み）。

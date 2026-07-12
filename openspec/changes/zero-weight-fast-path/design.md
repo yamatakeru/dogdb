@@ -2,8 +2,8 @@
 
 現在の実行パイプラインは、ゼロ確率設定でも操作ごとに次の暗号学的計算を行う:
 
-- `proxy/connection.py execute()`: `template_fingerprint(sql)`（統計用、connection.py:137）→ `DecisionEngine.begin()` 内で**同じfingerprintを再計算**（decision.py:34）＋ `parameter_fingerprint`（HMAC、無条件）→ `decide()` ×2 phase（SHA-256各1回、scopedでなくても計算）。
-- `faults.py _fires()`: 確率を取得した**後**、確率が0でも発火判定ハッシュを導出してから `probability > 0` を評価する（faults.py:178-194）。
+- `proxy/connection.py execute()`: `template_fingerprint(sql)`（統計用、connection.py:133）→ `DecisionEngine.begin()` 内で**同じfingerprintを再計算**（decision.py:34）＋ `parameter_fingerprint`（HMAC、無条件）→ `decide()` ×2 phase（SHA-256各1回、scopedでなくても計算）。
+- `faults.py _fires()`: 確率を取得した**後**、確率が0でも発火判定ハッシュを導出してから `probability > 0` を評価する（faults.py:178-189）。
 
 実測: ゼロ確率の小SELECT 2000回で素15ms→ラップ455ms（約30倍）。
 
@@ -11,8 +11,8 @@
 
 - `FaultPolicy` は実行時可変。`stash` / `shuffle` / `ignore` のプロパティsetterが公開され、テストが実際にセッション途中で重みを変更する（tests/test_conformance.py の `conn._faults.policy.ignore = 0`）。
 - mood有効時の実効重みは base × mood係数 でtickごとに変わる（faults.py:181-182）。
-- `debug=True` は発火しない決定にも `decision_evaluated` イベントを記録し、decision key と parameter fingerprint を消費する（faults.py:406-424）。
-- `stale_cache`（OLD_BONE > 0 のwrap時のみ生成）はSELECTごとに on_result decision を保存する（connection.py:172-177）。
+- `debug=True` は発火しない決定にも `decision_evaluated` イベントを記録し、decision key と parameter fingerprint を消費する（faults.py:397-415）。
+- `stale_cache`（OLD_BONE > 0 のwrap時のみ生成）はSELECTごとに on_result decision を保存する（connection.py:168-173）。
 - `decide()` は副作用のない純関数（decision.py:39-58）。`begin()` はoccurrenceカウンタを進める副作用を持つ（decision.py:33-37）。
 
 ## Goals / Non-Goals
@@ -64,7 +64,7 @@ decision key が観測可能な出力へ到達する経路は (a) 発火イベ�
 
 ## Risks / Trade-offs
 
-- [遅延fingerprintの解決漏れ] イベント生成経路で未解決のままシリアライズされると事故になる → 全障害の発火系テスト（conformance / shape / value / availability）とW3-aゴールデン回帰テストが無変更で通ることを合格ゲートとし、解決漏れは即検出される。
+- [遅延fingerprintの解決漏れ] イベント生成経路で未解決のままシリアライズされると事故になる → 全障害の発火系テスト（conformance / shape / value / availability）とv3ゴールデン回帰テスト（tests/test_policy_regression.py）が無変更で通ることを合格ゲートとし、解決漏れは即検出される。
 - [decide()スキップ述語の誤り] debug・stale cache・before_consumed の見落としはイベント欠落として現れる → fast path固有テスト（debug=True で `decision_evaluated` が従来どおり出る、OLD_BONE有効時のstale参照不変、重み0→非0の実行時変更でdecision key不変）を追加する。
 - [mood係数の参照が状態を進める誤実装] `mood.multiplier()` は読み取り専用であること（advanceは `_begin_operation` のみ）を前提とする。実効重み判定でこれを崩さない。
 - [5倍ゲートの環境依存] 測定条件（バックエンド・クエリ・反復数・中央値）をスクリプトに固定し、比（絶対時間でなく）で判定して環境差を吸収する。
@@ -80,4 +80,4 @@ decision key が観測可能な出力へ到達する経路は (a) 発火イベ�
 
 ## Open Questions
 
-（なし——W3-a完了後に `/opsx:update` で基準線との整合を再確認してから着手する）
+（なし——W3-a完了（PR #14マージ済み）後の `/opsx:update` で基準線との整合を確認済み。v3基準線は tests/test_policy_regression.py + tests/fixtures/policy_v3_golden.json）

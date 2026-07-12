@@ -12,7 +12,7 @@
 - [ ] 2.2 fast path固有テストを追加する: `debug=True` かつ全重み0で `decision_evaluated` イベントが従来どおり記録される
 - [ ] 2.3 fast path固有テストを追加する: `include_params=True` および OLD_BONE有効（stale cache）の各経路でイベント・stale参照が従来どおり生成される
 - [ ] 2.4 全重み0の実行で `dolly.stats()` の分類集計が全操作分記録されることをテストする
-- [ ] 2.5 既存全テスト（W3-aゴールデン回帰テストを含む）が**無変更で**通ることを確認する（`.venv/bin/pytest`）——byte-for-byte合格ゲート
+- [ ] 2.5 既存全テスト（v3ゴールデン回帰テスト `tests/test_policy_regression.py` を含む）が**無変更で**通ることを確認する（`.venv/bin/pytest`）——byte-for-byte合格ゲート
 
 ## 3. ベンチマーク
 
