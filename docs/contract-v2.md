@@ -4,7 +4,7 @@
 
 ## 決定関数と fingerprint
 
-`decision_key`、SQL template fingerprint、parameter fingerprint の定義と `POLICY_VERSION` は contract v1 から変更しない。`POLICY_VERSION` は引き続き `dogdb-v1:normalize=trim+collapse-whitespace+lowercase` である。決定性の保証単位は、同一 seed、明示した同一 session ID、同一設定、およびセッション先頭からの同一の順序付き入力列である。部分 replay の一致は保証しない。
+`decision_key`、SQL template fingerprint、parameter fingerprint の定義は contract v1 を継承する。`POLICY_VERSION` は `dogdb-v3:normalize=trim+collapse-whitespace+lowercase` である。決定性の保証単位は、同一 seed、明示した同一 session ID、同一設定、およびセッション先頭からの同一の順序付き入力列である。部分 replay の一致は保証しない。
 
 parameter fingerprint の入力域は、JSONネイティブのscalar値と、厳密な型一致による `bytes`、`bytearray`、`datetime.date`、`datetime.time`、`datetime.datetime`、`Decimal`、`UUID` に閉じる。サブクラスや独自型を含む入力域外の位置パラメータ操作は、fingerprint、decision、event、occurrenceを生成せずバックエンドへ素通しする。素通し操作でもmood／自動返却の論理時計は1操作として進める。発生数は `dolly.stats()["passthrough"]["unsupported_parameter_type"]` に記録し、生パラメータ、型名、reprを統計へ含めてはならない。将来この操作を障害注入対象にする場合は、occurrenceとreplay系列が変わるため、`POLICY_VERSION` 更新の要否を判断しなければならない。
 
@@ -36,10 +36,6 @@ wall-clock、OS 乱数、Python の組み込み `hash()` を決定へ使って�
 | `mood:<epoch>` | epoch ごとの mood 遷移 |
 | `event:<seq>:<event-name>` | event ID |
 | `treasure:<row-index>` | treasure ID |
-
-### MVP 導出互換性
-
-STASH / SHUFFLE / IGNORE は v1 の決定値とイベント列を維持するため、上表の対応用途を実装内の互換タグへ解決し、v1 と同じ NUL 区切り label 導出（STASH の行位置だけは decision key digest そのもの）を使う。この互換経路は既存3障害だけに閉じ、新規障害は標準のコロン区切り導出を使う。これは schema version とは独立した replay 互換性規則である。
 
 ## fault 合成規則
 

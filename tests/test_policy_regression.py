@@ -9,7 +9,7 @@ import dogdb
 
 
 FIXTURE = json.loads(
-    (Path(__file__).parent / "fixtures" / "mvp_legacy.json").read_text()
+    (Path(__file__).parent / "fixtures" / "policy_v3_golden.json").read_text()
 )
 
 
@@ -38,11 +38,8 @@ def _run(fault: str) -> dict[str, object]:
             "outcome": caught.outcome,
         }
     events = [asdict(event) for event in conn.dolly.log()]
-    # schema_version=2 is the sole intentional wire-level change in D4.
-    for event in events:
-        event["schema_version"] = 1
     return json.loads(json.dumps({"rows": rows, "error": error, "events": events}))
 
 
-def test_mvp_fault_outputs_remain_bit_for_bit_compatible():
+def test_policy_fault_outputs_remain_bit_for_bit_stable():
     assert {fault: _run(fault) for fault in ("STASH", "SHUFFLE", "IGNORE")} == FIXTURE
