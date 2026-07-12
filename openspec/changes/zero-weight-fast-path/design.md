@@ -39,10 +39,10 @@
 
 ### D3: 観測不能なら `decide()` 自体をスキップする
 
-decision key が観測可能な出力へ到達する経路は (a) 発火イベント・宝物、(b) debugの `decision_evaluated` イベント、(c) stale cacheエントリ、の3つに閉じる。したがって:
+decision key が観測可能な出力へ到達する経路は (a) 発火イベント・宝物、(b) debugの `decision_evaluated` イベント、(c) stale cacheエントリ、(d) `max_intervention_rows` 超過時の `limit_exceeded` イベント（`on_max_rows="error"` では `DollyLimitError`。全実効重み0でも発生する）、の4つに閉じる。したがって:
 
 - before_execute の decide は `scoped かつ (debug または before phase候補に実効重み>0がある)` のときだけ計算する。
-- on_result の decide は `scoped かつ ((not before_consumed かつ (debug または on_result候補に実効重み>0)) または (stale_cacheあり かつ SELECT))` のときだけ計算する。
+- on_result の decide は `scoped かつ ((not before_consumed かつ (debug または on_result候補に実効重み>0)) または (stale_cacheあり かつ SELECT) または (SELECT結果行数が max_intervention_rows 超過))` のときだけ計算する。
 
 `decide()` は純関数でありスキップは後続操作の決定に影響しない（occurrenceは `begin()` が進め続ける）。スキップした操作の後に重みが非0へ変わっても、次操作の decision key は従来と同一の純関数値になる。
 

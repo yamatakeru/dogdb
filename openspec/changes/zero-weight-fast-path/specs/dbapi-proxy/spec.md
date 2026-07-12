@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: ゼロ実効重み時の計算回避
-実効重み（base重み × mood係数）が0の障害について、発火判定のための導出ハッシュを計算してはならない（MUST NOT）。操作のどの観測可能な出力（発火イベント・宝物・staleエントリ・デバッグイベント・`include_params=True` の決定キー）にも寄与しない場合、decision keyおよびparameter fingerprintの導出を計算してはならない（MUST NOT）。この回避の下でも、SQL分類・統計記録・occurrenceカウント・論理時計の前進は全操作で維持されなければならない（MUST）。
+実効重み（base重み × mood係数）が0の障害について、発火判定のための導出ハッシュを計算してはならない（MUST NOT）。操作のどの観測可能な出力（発火イベント・宝物・staleエントリ・デバッグイベント・介入上限超過のイベントとエラー・`include_params=True` の決定キー）にも寄与しない場合、decision keyおよびparameter fingerprintの導出を計算してはならない（MUST NOT）。この回避の下でも、SQL分類・統計記録・occurrenceカウント・論理時計の前進は全操作で維持されなければならない（MUST）。
 
 #### Scenario: 重みの実行時変更後も決定キーは純関数として不変
 - **WHEN** 全重み0で同一クエリを2回実行した後、ある障害の実効重みを非0へ変更して同じクエリを3回目に実行する

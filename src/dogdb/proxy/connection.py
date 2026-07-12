@@ -14,7 +14,13 @@ from dogdb.adapters.sqlite import SQLiteAdapter
 from dogdb.core.auto_return import AutoReturnScheduler, parse_auto_return_config
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.event_log import Event, EventLog
-from dogdb.core.faults import KNOWN_FAULTS, FaultEngine, FaultPolicy
+from dogdb.core.faults import (
+    BEFORE_EXECUTE_PRIORITY,
+    KNOWN_FAULTS,
+    ON_RESULT_PRIORITY,
+    FaultEngine,
+    FaultPolicy,
+)
 from dogdb.core.house import HouseLedger, Treasure
 from dogdb.core.fingerprints import (
     params_in_fingerprint_domain,
@@ -144,32 +150,61 @@ class _InterventionEngine:
         ):
             return self._adapter.execute(sql, params)  # type: ignore[arg-type]
 
-        template, parameter, occurrence = self._decisions.begin(sql, params)
-        before = self._decisions.decide(
-            template=template,
-            parameter=parameter,
-            occurrence=occurrence,
-            phase="before_execute",
+        template, parameter, occurrence = self._decisions.begin(
+            sql, params, template_fingerprint=fingerprint
         )
         scoped = self._scope_applies(classification.tables)
-        before_consumed = self._faults.before_execute(before) if scoped else False
+        evaluate_before = scoped and (
+            self._faults.debug
+            or self._faults.has_effective_weight(BEFORE_EXECUTE_PRIORITY)
+        )
+        before_consumed = False
+        if evaluate_before:
+            before = self._decisions.decide(
+                template=template,
+                parameter=parameter,
+                occurrence=occurrence,
+                phase="before_execute",
+            )
+            before_consumed = self._faults.before_execute(before)
         result = self._adapter.execute(sql, params)
-        on_result = self._decisions.decide(
-            template=template,
-            parameter=parameter,
-            occurrence=occurrence,
-            phase="on_result",
-        )
-        logical_result = (
-            self._faults.on_result(on_result, classification, result)
-            if scoped and not before_consumed
-            else result
-        )
-        if (
+        cache_result = (
             self._stale_cache is not None
             and scoped
             and classification.kind is SQLKind.SELECT
-        ):
+        )
+        oversized_result = (
+            scoped
+            and classification.kind is SQLKind.SELECT
+            and len(result.rows) > self._faults.max_intervention_rows
+        )
+        evaluate_on_result = scoped and (
+            (
+                not before_consumed
+                and (
+                    self._faults.debug
+                    or self._faults.has_effective_weight(ON_RESULT_PRIORITY)
+                )
+            )
+            or cache_result
+            or oversized_result
+        )
+        on_result = None
+        if evaluate_on_result:
+            on_result = self._decisions.decide(
+                template=template,
+                parameter=parameter,
+                occurrence=occurrence,
+                phase="on_result",
+            )
+        logical_result = (
+            self._faults.on_result(on_result, classification, result)
+            if on_result is not None and not before_consumed
+            else result
+        )
+        if cache_result:
+            assert self._stale_cache is not None
+            assert on_result is not None
             self._stale_cache.add(on_result, logical_result)
         return logical_result
 

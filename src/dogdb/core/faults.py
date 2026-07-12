@@ -180,13 +180,24 @@ class FaultEngine:
         probability = self.policy.probability(fault_name)
         if self.mood is not None:
             probability *= self.mood.multiplier(fault_name)
+        if probability <= 0:
+            return False
         value = self.decisions.unit_interval(
             decision.decision_key, f"fire:{fault_name}"
         )
-        return probability > 0 and (
-            probability >= 1
-            or value < probability
-        )
+        return probability >= 1 or value < probability
+
+    def has_effective_weight(self, candidates: Iterable[str]) -> bool:
+        if not any(self.policy.probabilities.values()):
+            return False
+        for fault in candidates:
+            fault_name = fault.removesuffix("_ERROR")
+            probability = self.policy.probability(fault_name)
+            if self.mood is not None:
+                probability *= self.mood.multiplier(fault_name)
+            if probability > 0:
+                return True
+        return False
 
     def select_candidate(
         self,
