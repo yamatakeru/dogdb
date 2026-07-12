@@ -108,6 +108,41 @@ STASH / SHUFFLE / IGNORE は v1 の決定値とイベント列を維持するた
 
 escape hatchの値はnative methodの**呼び出し回数**であり、backendが実行したSQL数ではない。とくにDuckDBの`sql()`は遅延評価されるrelationを返すため、`sql`の呼び出し回数と実際のSQL実行回数は一致するとは限らない。転送経路は障害注入、イベント記録、論理時計、occurrence更新の対象外である。
 
+## バックエンド別公開表面と適合契約
+
+公開表面はバックエンドごとに分岐し、宣言した対応表面内でそれぞれのネイティブ接続と同型でなければならない。両バックエンド間で一致を要求する conformance 契約は介入コアに限定する。同一 seed・同一 SQL 列に対する decision、障害イベント列、および論理結果への障害適用結果は一致しなければならないが、execute の返り値型、結果取得の入口、コンテキストマネージャ意味論を含む公開表面の一致は要求しない。表面挙動は「もう一方のバックエンド」ではなく、各バックエンドのネイティブドライバ（sqlite3／duckdb）との同型性で検証する。クロスバックエンドの表面等価性は契約の対象外である。
+
+### SQLite 表面
+
+`execute()` および `executemany()` は sqlite3 の接続ショートカットと同型に、呼び出すたびに新規の `CursorProxy` を返す。返り値は接続自身でも過去のカーソルでもなく、各カーソルが独立した結果状態と消費位置を持つ。`cursor()` は未実行の `CursorProxy` を返し、その `execute()` は介入コアを経由してカーソル自身を返す。
+
+接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` は提供しない。これらへアクセスした場合は、`execute()` が返したカーソルを使うよう案内するメッセージ付きの `AttributeError` を送出する。
+
+`with conn:` はトランザクションだけを管理する。例外なしで抜けた場合は commit、例外で抜けた場合は rollback し、どちらの場合も接続を close しない。
+
+### DuckDB 表面
+
+DuckDB の公開表面は従来どおりである。`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を提供する。`with conn:` は終了時に接続を close する。`cursor()` と `sql()` は宣言した介入表面外であり、既定では従来どおり誘導付きの `AttributeError` で fail-closed とする。
+
+### 明示的不忠実
+
+`row_factory` は SQLite／DuckDB のどちらの表面でも対応しない。DogDB は行を tuple に正規化する。これは障害適用の決定性を行表現に依存させないために、ADR-001 の優先順位「決定性 ＞ 宣言表面の忠実性」を適用した明示的不忠実であり、対応漏れではない。
+
+## 破壊的変更と移行
+
+SQLite 表面では、`execute()`／`executemany()` の返り値が接続自身から毎回新規の `CursorProxy` へ変わり、接続レベルの結果取得を廃止した。また、`__exit__` は無条件 close から commit／rollback のトランザクション管理へ変わり、接続を close しなくなった。conformance 契約はクロスバックエンドの表面等価性から介入コアの一致へ縮小した。DuckDB 表面にこれらの変更はない。
+
+`conn.execute(sql).fetchall()`、`fetchone()`、`fetchmany()` の連鎖形は、旧表面（`execute()` が接続自身を返す）と新しい SQLite 表面（カーソルを返す）の両方で動作するため、今後の推奨形とする。`conn.execute(sql)` の後で `conn.fetchall()`／`conn.description`／`conn.rowcount` を接続へ直接呼び出すコードは、返されたカーソルを保持して結果を取得する形へ書き換える。
+
+```python
+cursor = conn.execute("select * from treats")
+rows = cursor.fetchall()
+description = cursor.description
+rowcount = cursor.rowcount
+```
+
+`with conn:` の終了時 close に依存するコードは、ブロック後に `conn.close()` を明示的に呼び出す。SQLite では `with` が接続寿命を管理しないため、必要に応じて `try`／`finally` または `contextlib.closing` で close を保証する。
+
 ## SQL、scope、backend の境界
 
 core は backend ライブラリを import してはならず、backend 由来の例外を変換してはならない。DogDB はSQLを書き換えず、分類済み操作の論理結果だけを加工する。

@@ -53,9 +53,8 @@ def _tracking_sqlite() -> TrackingSQLiteConnection:
     return raw
 
 
-@pytest.mark.parametrize("backend", ["sqlite", "duckdb"])
-def test_fail_closed_cursor_does_not_reach_native_connection(backend: str):
-    raw = _tracking_sqlite() if backend == "sqlite" else TrackingDuckDBConnection()
+def test_fail_closed_duckdb_cursor_does_not_reach_native_connection():
+    raw = TrackingDuckDBConnection()
     conn = dogdb.wrap(raw, seed=42)
 
     with pytest.raises(AttributeError) as error:
@@ -66,8 +65,17 @@ def test_fail_closed_cursor_does_not_reach_native_connection(backend: str):
     assert "execute()" in message
     assert "allow_native_passthrough=True" in message
     assert raw.native_accesses.get("cursor", 0) == 0
-    if backend == "sqlite":
-        raw.close()
+
+
+def test_sqlite_cursor_uses_proxy_without_reaching_native_connection():
+    raw = _tracking_sqlite()
+    conn = dogdb.wrap(raw, seed=42)
+
+    cursor = conn.cursor()
+
+    assert type(cursor).__name__ == "CursorProxy"
+    assert raw.native_accesses.get("cursor", 0) == 0
+    raw.close()
 
 
 def test_fail_closed_duckdb_sql_does_not_reach_native_connection():
@@ -101,15 +109,14 @@ def test_fail_closed_unknown_attribute_does_not_reach_native_connection(
         raw.close()
 
 
-def test_native_passthrough_returns_cursor_and_counts_call():
+def test_native_passthrough_keeps_sqlite_cursor_on_injected_surface():
     raw = sqlite3.connect(":memory:")
     conn = dogdb.wrap(raw, seed=42, allow_native_passthrough=True)
 
     cursor = conn.cursor()
 
-    assert isinstance(cursor, sqlite3.Cursor)
-    assert conn.dolly.stats()["escape_hatches"]["cursor"] == 1
-    cursor.close()
+    assert type(cursor).__name__ == "CursorProxy"
+    assert conn.dolly.stats()["escape_hatches"].get("cursor", 0) == 0
     conn.close()
 
 

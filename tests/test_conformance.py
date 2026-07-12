@@ -74,9 +74,15 @@ def test_backends_produce_matching_fault_events():
             session_id="conformance",
             faults={"SHUFFLE": 1},
         )
-        conn.execute("select id from t").fetchall()
+        rows = conn.execute("select id from t").fetchall()
         signatures.append(
-            [(event.fault, event.decision_key, event.outcome) for event in conn.dolly.log()]
+            (
+                rows,
+                [
+                    (event.fault, event.decision_key, event.outcome)
+                    for event in conn.dolly.log()
+                ],
+            )
         )
     assert signatures[0] == signatures[1]
 
@@ -310,9 +316,9 @@ def test_fetch_style_does_not_change_fault_application():
         _populated("sqlite"), seed=42, session_id="fetch", faults={"SHUFFLE": 1}
     )
     all_rows = all_conn.execute("select id from t").fetchall()
-    one_conn.execute("select id from t")
+    cursor = one_conn.execute("select id from t")
     one_rows = []
-    while (row := one_conn.fetchone()) is not None:
+    while (row := cursor.fetchone()) is not None:
         one_rows.append(row)
     assert all_rows == one_rows
     assert all_conn.dolly.log() == one_conn.dolly.log()

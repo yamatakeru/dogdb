@@ -28,43 +28,43 @@ from dogdb.core.stats import StatsTracker
 
 
 class DollyNamespace:
-    def __init__(self, proxy: DBAPIProxy) -> None:
-        self._proxy = proxy
+    def __init__(self, engine: _InterventionEngine) -> None:
+        self._engine = engine
 
     def house(self) -> list[Treasure]:
-        return self._proxy._house.values()
+        return self._engine._house.values()
 
     def log(self) -> list[Event]:
-        return self._proxy._events.events()
+        return self._engine._events.events()
 
     def stats(self) -> dict[str, object]:
-        return self._proxy._stats.snapshot()
+        return self._engine._stats.snapshot()
 
     def return_treasure(self, treasure_id: str) -> Treasure | None:
-        if self._proxy._auto_return is not None:
-            self._proxy._auto_return.cancel(treasure_id)
-        treasure = self._proxy._house.return_treasure(treasure_id)
+        if self._engine._auto_return is not None:
+            self._engine._auto_return.cancel(treasure_id)
+        treasure = self._engine._house.return_treasure(treasure_id)
         if treasure is not None:
             self._log_return(treasure)
         return treasure
 
     def return_all(self) -> list[Treasure]:
-        returned = self._proxy._house.return_all()
+        returned = self._engine._house.return_all()
         for treasure in returned:
-            if self._proxy._auto_return is not None:
-                self._proxy._auto_return.cancel(treasure.treasure_id)
+            if self._engine._auto_return is not None:
+                self._engine._auto_return.cancel(treasure.treasure_id)
             self._log_return(treasure)
         return returned
 
     def _log_return(self, treasure: Treasure, *, phase: str = "manual_return") -> None:
-        seq = self._proxy._events.next_seq()
+        seq = self._engine._events.next_seq()
         tag = f"event:{seq}:RETURN"
         event_id = (
-            self._proxy._decisions.legacy_id(treasure.decision_key, tag)
+            self._engine._decisions.legacy_id(treasure.decision_key, tag)
             if phase == "manual_return"
-            else self._proxy._decisions.deterministic_id(treasure.decision_key, tag)
+            else self._engine._decisions.deterministic_id(treasure.decision_key, tag)
         )
-        self._proxy._events.append(
+        self._engine._events.append(
             event_id=event_id,
             event_type="treasure_returned",
             fault="STASH",
@@ -78,13 +78,12 @@ class DollyNamespace:
         )
 
 
-class DBAPIProxy:
+class _InterventionEngine:
     def __init__(
         self,
         connection: Any,
         adapter: Adapter,
         *,
-        allow_native_passthrough: bool,
         seed: object,
         session_id: str,
         include_params: bool,
@@ -103,7 +102,6 @@ class DBAPIProxy:
     ) -> None:
         self._connection = connection
         self._adapter = adapter
-        self._allow_native_passthrough = allow_native_passthrough
         self._decisions = DecisionEngine(
             seed=seed, session_id=session_id, include_params=include_params
         )
@@ -129,11 +127,11 @@ class DBAPIProxy:
         self._logical_tick = 0 if mood is not None or auto_return is not None else None
         self._only_tables = only_tables
         self._exclude_tables = exclude_tables
-        self._result = LogicalResult([], [], -1)
-        self._offset = 0
         self.dolly = DollyNamespace(self)
 
-    def execute(self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None) -> DBAPIProxy:
+    def execute(
+        self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
+    ) -> LogicalResult:
         self._begin_operation()
         classification = classify_sql(sql)
         fingerprint = template_fingerprint(sql)
@@ -148,9 +146,7 @@ class DBAPIProxy:
             or classification.is_transaction
             or unsupported_params
         ):
-            self._result = self._adapter.execute(sql, params)  # type: ignore[arg-type]
-            self._offset = 0
-            return self
+            return self._adapter.execute(sql, params)  # type: ignore[arg-type]
 
         template, parameter, occurrence = self._decisions.begin(sql, params)
         before = self._decisions.decide(
@@ -168,7 +164,7 @@ class DBAPIProxy:
             occurrence=occurrence,
             phase="on_result",
         )
-        self._result = (
+        logical_result = (
             self._faults.on_result(on_result, classification, result)
             if scoped and not before_consumed
             else result
@@ -178,9 +174,8 @@ class DBAPIProxy:
             and scoped
             and classification.kind is SQLKind.SELECT
         ):
-            self._stale_cache.add(on_result, self._result)
-        self._offset = 0
-        return self
+            self._stale_cache.add(on_result, logical_result)
+        return logical_result
 
     def _begin_operation(self) -> None:
         if self._logical_tick is None:
@@ -217,12 +212,85 @@ class DBAPIProxy:
             return tables is None or not bool(tables & self._exclude_tables)
         return True
 
-    def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DBAPIProxy:
+    def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> LogicalResult:
         self._begin_operation()
         cursor = self._connection.executemany(sql, params)
-        self._result = LogicalResult([], [], getattr(cursor, "rowcount", -1))
+        return LogicalResult([], [], getattr(cursor, "rowcount", -1))
+
+
+class DuckDBProxy:
+    """DuckDB-faithful connection surface backed by the intervention engine."""
+
+    def __init__(
+        self,
+        connection: Any,
+        adapter: Adapter,
+        *,
+        allow_native_passthrough: bool,
+        **engine_options: Any,
+    ) -> None:
+        self._engine = _InterventionEngine(connection, adapter, **engine_options)
+        self._connection = connection
+        self._allow_native_passthrough = allow_native_passthrough
+        self._result = LogicalResult([], [], -1)
+        self._offset = 0
+        self.dolly = self._engine.dolly
+
+    def execute(
+        self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
+    ) -> DuckDBProxy:
+        self._result = self._engine.execute(sql, params)
         self._offset = 0
         return self
+
+    def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DuckDBProxy:
+        self._result = self._engine.executemany(sql, params)
+        self._offset = 0
+        return self
+
+    @property
+    def _adapter(self) -> Adapter:
+        return self._engine._adapter
+
+    @_adapter.setter
+    def _adapter(self, adapter: Adapter) -> None:
+        self._engine._adapter = adapter
+
+    @property
+    def _decisions(self) -> DecisionEngine:
+        return self._engine._decisions
+
+    @property
+    def _events(self) -> EventLog:
+        return self._engine._events
+
+    @property
+    def _house(self) -> HouseLedger:
+        return self._engine._house
+
+    @property
+    def _faults(self) -> FaultEngine:
+        return self._engine._faults
+
+    @property
+    def _mood(self) -> MoodEngine | None:
+        return self._engine._mood
+
+    @property
+    def _auto_return(self) -> AutoReturnScheduler | None:
+        return self._engine._auto_return
+
+    @property
+    def _stale_cache(self) -> StaleReadCache | None:
+        return self._engine._stale_cache
+
+    @property
+    def _stats(self) -> StatsTracker:
+        return self._engine._stats
+
+    @property
+    def _logical_tick(self) -> int | None:
+        return self._engine._logical_tick
 
     def fetchall(self) -> list[tuple[Any, ...]]:
         rows = self._result.rows[self._offset :]
@@ -265,7 +333,7 @@ class DBAPIProxy:
     def close(self) -> None:
         self._adapter.close()
 
-    def __enter__(self) -> DBAPIProxy:
+    def __enter__(self) -> DuckDBProxy:
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -289,12 +357,221 @@ class DBAPIProxy:
                 "Use execute() or pass allow_native_passthrough=True to wrap()."
             )
         raise AttributeError(
-            f"DBAPIProxy has no supported attribute {name!r}. Supported public API: "
+            f"DuckDBProxy has no supported attribute {name!r}. Supported public API: "
             "execute(), executemany(), fetchall(), fetchone(), fetchmany(), description, "
             "rowcount, in_transaction, commit(), rollback(), close(), dolly, and context "
             "management. Pass allow_native_passthrough=True to wrap() for intentional "
             "native access."
         )
+
+
+class CursorProxy:
+    """SQLite-faithful cursor surface with an intervention-backed result slot."""
+
+    def __init__(self, engine: _InterventionEngine) -> None:
+        self._engine = engine
+        self._result = LogicalResult([], [], -1)
+        self._offset = 0
+        self._reported_rowcount = -1
+
+    def execute(
+        self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
+    ) -> CursorProxy:
+        event_count = len(self._engine._events.events())
+        self._result = self._engine.execute(sql, params)
+        self._offset = 0
+        new_events = self._engine._events.events()[event_count:]
+        intervened = any(event.event_type == "fault_injected" for event in new_events)
+        self._reported_rowcount = (
+            self._result.rowcount
+            if intervened or not self._result.columns
+            else -1
+        )
+        return self
+
+    def executemany(
+        self, sql: str, params: Sequence[Sequence[Any]]
+    ) -> CursorProxy:
+        self._result = self._engine.executemany(sql, params)
+        self._offset = 0
+        self._reported_rowcount = self._result.rowcount
+        return self
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        rows = self._result.rows[self._offset :]
+        self._offset = len(self._result.rows)
+        return list(rows)
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        if self._offset >= len(self._result.rows):
+            return None
+        row = self._result.rows[self._offset]
+        self._offset += 1
+        return row
+
+    def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]:
+        amount = 1 if size is None else size
+        rows = self._result.rows[self._offset : self._offset + amount]
+        self._offset += len(rows)
+        return list(rows)
+
+    def __iter__(self) -> CursorProxy:
+        return self
+
+    def __next__(self) -> tuple[Any, ...]:
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
+
+    @property
+    def description(
+        self,
+    ) -> tuple[tuple[str, None, None, None, None, None, None], ...] | None:
+        if not self._result.columns:
+            return None
+        return tuple(
+            (name, None, None, None, None, None, None)
+            for name in self._result.columns
+        )
+
+    @property
+    def rowcount(self) -> int:
+        return self._reported_rowcount
+
+
+class SQLiteProxy:
+    """SQLite-faithful connection surface backed by the intervention engine."""
+
+    def __init__(
+        self,
+        connection: Any,
+        adapter: Adapter,
+        *,
+        allow_native_passthrough: bool,
+        **engine_options: Any,
+    ) -> None:
+        self._engine = _InterventionEngine(connection, adapter, **engine_options)
+        self._connection = connection
+        self._allow_native_passthrough = allow_native_passthrough
+        self.dolly = self._engine.dolly
+
+    def execute(
+        self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
+    ) -> CursorProxy:
+        return self.cursor().execute(sql, params)
+
+    def executemany(
+        self, sql: str, params: Sequence[Sequence[Any]]
+    ) -> CursorProxy:
+        return self.cursor().executemany(sql, params)
+
+    def cursor(self) -> CursorProxy:
+        return CursorProxy(self._engine)
+
+    @property
+    def _adapter(self) -> Adapter:
+        return self._engine._adapter
+
+    @_adapter.setter
+    def _adapter(self, adapter: Adapter) -> None:
+        self._engine._adapter = adapter
+
+    @property
+    def _decisions(self) -> DecisionEngine:
+        return self._engine._decisions
+
+    @property
+    def _events(self) -> EventLog:
+        return self._engine._events
+
+    @property
+    def _house(self) -> HouseLedger:
+        return self._engine._house
+
+    @property
+    def _faults(self) -> FaultEngine:
+        return self._engine._faults
+
+    @property
+    def _mood(self) -> MoodEngine | None:
+        return self._engine._mood
+
+    @property
+    def _auto_return(self) -> AutoReturnScheduler | None:
+        return self._engine._auto_return
+
+    @property
+    def _stale_cache(self) -> StaleReadCache | None:
+        return self._engine._stale_cache
+
+    @property
+    def _stats(self) -> StatsTracker:
+        return self._engine._stats
+
+    @property
+    def _logical_tick(self) -> int | None:
+        return self._engine._logical_tick
+
+    @property
+    def in_transaction(self) -> bool:
+        return self._adapter.in_transaction
+
+    def commit(self) -> None:
+        self._connection.commit()
+
+    def rollback(self) -> None:
+        self._connection.rollback()
+
+    def close(self) -> None:
+        self._adapter.close()
+
+    def __enter__(self) -> SQLiteProxy:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object,
+    ) -> None:
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()
+
+    def __getattr__(self, name: str) -> Any:
+        if name in {"fetchall", "fetchone", "fetchmany", "description", "rowcount"}:
+            raise AttributeError(
+                f"SQLiteProxy has no connection-level {name!r}; SQLite results belong "
+                "to cursors. Use conn.execute(sql).fetchall() or cursor().execute(sql)."
+            )
+        if self._allow_native_passthrough:
+            native_attr = getattr(self._connection, name)
+            if not callable(native_attr):
+                return native_attr
+            bucket = name if name in self._adapter.sql_capable_attrs else "other"
+
+            def call_native(*args: Any, **kwargs: Any) -> Any:
+                self._stats.record_escape_hatch(bucket)
+                return native_attr(*args, **kwargs)
+
+            return call_native
+        if name in self._adapter.sql_capable_attrs:
+            raise AttributeError(
+                f"DogDB cannot inject faults through native connection attribute {name!r}. "
+                "Use execute() or pass allow_native_passthrough=True to wrap()."
+            )
+        raise AttributeError(
+            f"SQLiteProxy has no supported attribute {name!r}. Supported public API: "
+            "execute(), executemany(), cursor(), in_transaction, commit(), rollback(), "
+            "close(), dolly, and context management. Pass allow_native_passthrough=True "
+            "to wrap() for intentional native access."
+        )
+
+
+# Kept as a compatibility type name for the pre-split DuckDB-like surface.
+DBAPIProxy = DuckDBProxy
 
 
 def _adapter_for(connection: Any) -> Adapter:
@@ -334,7 +611,7 @@ def wrap(
     only_tables: Sequence[str] | None = None,
     exclude_tables: Sequence[str] | None = None,
     debug: bool = False,
-) -> DBAPIProxy:
+) -> DuckDBProxy | SQLiteProxy:
     if only_tables is not None and exclude_tables is not None:
         raise ValueError("only_tables and exclude_tables are mutually exclusive")
     if not callable(clock):
@@ -371,7 +648,8 @@ def wrap(
     )
     adapter = _adapter_for(connection)
     stats = StatsTracker()
-    return DBAPIProxy(
+    proxy_class = SQLiteProxy if isinstance(adapter, SQLiteAdapter) else DuckDBProxy
+    return proxy_class(
         connection,
         adapter,
         allow_native_passthrough=allow_native_passthrough,
@@ -416,7 +694,7 @@ def connect(
     backend: str = "duckdb",
     seed: object,
     **options: Any,
-) -> DBAPIProxy:
+) -> DuckDBProxy | SQLiteProxy:
     if backend == "sqlite":
         import sqlite3
 
