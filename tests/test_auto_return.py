@@ -82,6 +82,24 @@ def test_executemany_operation_can_trigger_auto_return():
     assert conn.dolly.log()[-1].phase == "auto_return"
 
 
+def test_unsupported_parameter_passthrough_can_trigger_auto_return():
+    class ConformingString(str):
+        def __conform__(self, protocol):
+            return str(self)
+
+    conn = dogdb.wrap(
+        raw_three_row_connection(), seed=42, faults={"STASH": 1}, auto_return=(1, 1)
+    )
+    conn.execute("select id from t order by id").fetchall()
+
+    assert conn.execute("select ?", (ConformingString("bone"),)).fetchall() == [
+        ("bone",)
+    ]
+    assert conn.dolly.house() == []
+    assert conn.dolly.log()[-1].phase == "auto_return"
+    assert conn._logical_tick == 2
+
+
 def test_manual_return_cancels_scheduled_auto_return():
     conn = dogdb.wrap(
         raw_three_row_connection(), seed=42, faults={"STASH": 1}, auto_return=(2, 2)

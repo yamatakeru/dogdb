@@ -14,6 +14,20 @@ from uuid import UUID
 
 
 _WHITESPACE = re.compile(r"\s+")
+FINGERPRINT_PARAMETER_TYPES = (
+    type(None),
+    bool,
+    int,
+    float,
+    str,
+    bytes,
+    bytearray,
+    date,
+    time,
+    datetime,
+    Decimal,
+    UUID,
+)
 
 
 def normalize_sql(sql: str) -> str:
@@ -27,23 +41,44 @@ def template_fingerprint(sql: str) -> str:
     return f"sha256:{value}"
 
 
-def _json_default(value: Any) -> dict[str, str]:
+def _unsupported_parameter_type(value: Any) -> TypeError:
     value_type = type(value)
     qualified_name = f"{value_type.__module__}.{value_type.__qualname__}"
-    if value_type not in (bytes, bytearray, date, time, datetime, Decimal, UUID):
-        raise TypeError(
-            f"unsupported parameter type {qualified_name}; only values with stable "
-            "canonical text representations are accepted"
-        )
+    return TypeError(
+        f"unsupported parameter type {qualified_name}; only values with stable "
+        "canonical text representations are accepted"
+    )
+
+
+def _json_default(value: Any) -> dict[str, str]:
+    value_type = type(value)
+    if value_type not in FINGERPRINT_PARAMETER_TYPES:
+        raise _unsupported_parameter_type(value)
+    qualified_name = f"{value_type.__module__}.{value_type.__qualname__}"
     return {
         "type": qualified_name,
         "value": str(value),
     }
 
 
+def params_in_fingerprint_domain(params: Sequence[Any] | None) -> bool:
+    """Return whether every parameter has a stable fingerprint representation."""
+
+    values = () if params is None else params
+    return all(type(value) in FINGERPRINT_PARAMETER_TYPES for value in values)
+
+
 def parameter_fingerprint(params: Sequence[Any] | None, key: bytes) -> str:
+    values = () if params is None else params
+    if not params_in_fingerprint_domain(values):
+        unsupported = next(
+            value
+            for value in values
+            if type(value) not in FINGERPRINT_PARAMETER_TYPES
+        )
+        raise _unsupported_parameter_type(unsupported)
     payload = json.dumps(
-        list(params or ()),
+        list(values),
         ensure_ascii=False,
         separators=(",", ":"),
         default=_json_default,
