@@ -24,4 +24,4 @@
 - [x] 4.1 既存テストスイート全通過（`uv run pytest`）と `openspec validate max-rows-and-session-limits` の通過を確認する
 - [x] 4.2 README の「限界と安全上の前提」を更新する: 新引数名、「メモリ保護ではない」の明記、`on_max_rows="error"` の紹介（実行済み後の例外である注意つき）、セッションはテスト単位で作り直す指針
 - [x] 4.3 `docs/contract-v2.md` を更新する: `details.limit` 識別子、`limit_exceeded` の outcome 語彙表への error モード追加、旧識別子の歴史注記
-- [ ] 4.4 GitHub issue #5 に完了コメントを残し、統括 #11 のチェックボックスを更新する
+- [x] 4.4 GitHub issue #5 に完了コメントを残し、統括 #11 のチェックボックスを更新する
