@@ -78,7 +78,8 @@ def test_backends_produce_matching_fault_events():
         signatures.append(
             (
                 # ORDER BYのないクエリの行順序はバックエンド間一致の対象外
-                # （SHUFFLEはORDER BYなしでのみ発火するため多重集合で比較する）。
+                # (SHUFFLEはORDER BYなしでのみ発火し行集合を保存するため、
+                # 多重集合で比較する)。
                 sorted(rows),
                 [
                     (event.fault, event.decision_key, event.outcome)

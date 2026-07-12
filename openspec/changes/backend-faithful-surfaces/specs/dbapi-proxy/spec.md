@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: SQLite表面の忠実性
-SQLite接続をラップしたプロキシ（SQLiteProxy）の公開表面は、`sqlite3.Connection` の表面と同型でなければならない（SHALL）。`execute(sql, params)` および `executemany(sql, params)` は毎回新規のカーソルプロキシを返さなければならず（MUST）、`execute(sql)` は `cursor().execute(sql)` と同じ観察可能挙動でなければならない（SHALL）。`cursor()` は未実行のカーソルプロキシを返さなければならない（SHALL）。結果状態はカーソルごとに独立でなければならず（MUST）、接続自身が結果状態（`fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount`）を持ってはならない（MUST NOT）。
+SQLite接続をラップしたプロキシ（SQLiteProxy）の公開表面は、宣言した対応表面の範囲で、対応する `sqlite3.Connection` の操作と同型でなければならない（SHALL）。対応表面外の属性は「未定義属性のfail-closed既定」要件に従い、row_factory 等の非対応は明示的不忠実として文書化しなければならない（SHALL）。`execute(sql, params)` および `executemany(sql, params)` は毎回新規のカーソルプロキシを返さなければならず（MUST）、`execute(sql)` は `cursor().execute(sql)` と同じ観察可能挙動でなければならない（SHALL）。`cursor()` は未実行のカーソルプロキシを返さなければならない（SHALL）。結果状態はカーソルごとに独立でなければならず（MUST）、接続自身が結果状態（`fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount`）を持ってはならない（MUST NOT）。
 
 #### Scenario: executeは毎回独立したカーソルを返す
 - **WHEN** SQLiteProxy で `c1 = conn.execute("SELECT 1")` と `c2 = conn.execute("SELECT 2")` を順に実行し、その後 `c1.fetchall()` を呼ぶ
@@ -14,7 +14,7 @@ SQLite接続をラップしたプロキシ（SQLiteProxy）の公開表面は、
 - **THEN** 誘導メッセージ付きの `AttributeError` が送出される
 
 #### Scenario: cursor()経由でも介入コアを通る
-- **WHEN** SQLiteProxy の `conn.cursor().execute(sql)` と `conn.execute(sql)` を同一seed・同一SQL列で比較する
+- **WHEN** 同一seedで初期化した2つのSQLiteProxyの一方で `conn.cursor().execute(sql)`、他方で `conn.execute(sql)` により同一SQL列を実行して比較する
 - **THEN** 生成される decision・障害イベント列は一致する
 
 ### Requirement: SQLiteカーソルプロキシの表面
