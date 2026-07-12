@@ -6,6 +6,8 @@
 
 `decision_key`、SQL template fingerprint、parameter fingerprint の定義と `POLICY_VERSION` は contract v1 から変更しない。`POLICY_VERSION` は引き続き `dogdb-v1:normalize=trim+collapse-whitespace+lowercase` である。決定性の保証単位は、同一 seed、明示した同一 session ID、同一設定、およびセッション先頭からの同一の順序付き入力列である。部分 replay の一致は保証しない。
 
+parameter fingerprint の入力域は、JSONネイティブのscalar値と、厳密な型一致による `bytes`、`bytearray`、`datetime.date`、`datetime.time`、`datetime.datetime`、`Decimal`、`UUID` に閉じる。サブクラスや独自型を含む入力域外の位置パラメータ操作は、fingerprint、decision、event、occurrenceを生成せずバックエンドへ素通しする。素通し操作でもmood／自動返却の論理時計は1操作として進める。発生数は `dolly.stats()["passthrough"]["unsupported_parameter_type"]` に記録し、生パラメータ、型名、reprを統計へ含めてはならない。将来この操作を障害注入対象にする場合は、occurrenceとreplay系列が変わるため、`POLICY_VERSION` 更新の要否を判断しなければならない。
+
 決定キーから用途別の値を得る標準導出は次式とする。
 
 ```text

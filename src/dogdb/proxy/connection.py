@@ -15,7 +15,10 @@ from dogdb.core.decision import DecisionEngine
 from dogdb.core.event_log import Event, EventLog
 from dogdb.core.faults import KNOWN_FAULTS, FaultEngine, FaultPolicy
 from dogdb.core.house import HouseLedger, Treasure
-from dogdb.core.fingerprints import template_fingerprint
+from dogdb.core.fingerprints import (
+    params_in_fingerprint_domain,
+    template_fingerprint,
+)
 from dogdb.core.models import LogicalResult
 from dogdb.core.mood import MoodEngine, parse_mood_config
 from dogdb.core.sql import SQLKind, classify_sql
@@ -132,10 +135,16 @@ class DBAPIProxy:
         classification = classify_sql(sql)
         fingerprint = template_fingerprint(sql)
         self._stats.record_classification(fingerprint, classification.kind)
+        unsupported_params = not isinstance(
+            params, Mapping
+        ) and not params_in_fingerprint_domain(params)
+        if unsupported_params:
+            self._stats.record_passthrough("unsupported_parameter_type")
         if (
             isinstance(params, Mapping)
             or classification.kind is SQLKind.UNKNOWN
             or classification.is_transaction
+            or unsupported_params
         ):
             self._result = self._adapter.execute(sql, params)  # type: ignore[arg-type]
             self._offset = 0

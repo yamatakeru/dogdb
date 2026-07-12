@@ -29,6 +29,11 @@ def _populated(name: str):
     return raw
 
 
+class _ConformingString(str):
+    def __conform__(self, protocol):
+        return str(self)
+
+
 def test_core_has_no_backend_imports():
     core = Path(__file__).parents[1] / "src" / "dogdb" / "core"
     forbidden = []
@@ -74,6 +79,20 @@ def test_backends_produce_matching_fault_events():
             [(event.fault, event.decision_key, event.outcome) for event in conn.dolly.log()]
         )
     assert signatures[0] == signatures[1]
+
+
+@pytest.mark.parametrize("backend", ["duckdb", "sqlite"])
+def test_unsupported_conforming_parameter_passthrough_matches_backend(backend):
+    sql = "select ?, ?"
+    params = (_ConformingString("bone"), 7)
+    expected = _backend(backend).execute(sql, params).fetchall()
+    conn = dogdb.wrap(_backend(backend), seed=42)
+
+    assert conn.execute(sql, params).fetchall() == expected
+    assert conn.dolly.log() == []
+    assert conn.dolly.stats()["passthrough"] == {
+        "unsupported_parameter_type": 1
+    }
 
 
 @pytest.mark.parametrize(
