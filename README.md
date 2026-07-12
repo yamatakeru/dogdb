@@ -33,6 +33,39 @@ SQLite なら `dogdb.connect("test.sqlite", backend="sqlite", seed=42)`、DuckDB
 
 イベントを JSONL に残すには `log_path="dogdb-events.jsonl"` を指定します。生 SQL、生パラメータ、生行値は記録されません。パラメータを決定キーにも参加させたい場合だけ `include_params=True` を指定してください。
 
+## バックエンド別の接続表面
+
+DogDB は介入コアを共有しますが、接続表面は各ネイティブドライバに合わせて分岐します。conformance が保証するのは、同一seed・同一SQL列に対する decision、障害イベント列、論理結果への障害適用結果という「介入コアの一致」です。SQLite と DuckDB の公開表面が互いに同じであることは保証せず、宣言した対応表面内でそれぞれ sqlite3／duckdb と同型になるよう検証します。クロスバックエンドの表面等価性は対象外です。
+
+### SQLite
+
+`execute()` と `executemany()` は、sqlite3 のショートカットメソッドと同じく、呼び出すたびに新規の `CursorProxy` を返します。各カーソルの結果と消費位置は独立しています。`cursor()` は未実行の `CursorProxy` を返します。
+
+接続自身には `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` がありません。アクセスすると、`execute()` が返したカーソルを使うよう案内する `AttributeError` になります。`with conn:` は例外なしならcommit、例外時はrollbackするトランザクション管理であり、接続はcloseしません。
+
+### DuckDB
+
+従来の表面を維持します。`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を利用できます。`with conn:` は終了時に接続をcloseします。`cursor()` と `sql()` は既定で従来どおりfail-closedとなり、`execute()` または `allow_native_passthrough=True` を案内する `AttributeError` を送出します。
+
+### 明示的不忠実
+
+`row_factory` はどちらのバックエンドでも対応しません。行をtupleに正規化し、障害適用の決定性を行表現に依存させないためです。これは優先順位「決定性 ＞ 宣言表面の忠実性」を適用した明示的不忠実であり、対応漏れではありません。
+
+### 破壊的変更と移行
+
+SQLite では、`execute()` の返り値が接続自身から毎回新規のカーソルへ変わり、`__exit__` は無条件closeからcommit／rollbackへ変わりました。また、conformance 契約はクロスバックエンドの表面等価性から介入コアの一致へ縮小しました。
+
+`conn.execute(sql).fetchall()` のような連鎖形は旧表面と新表面の両方で動くため、今後の推奨形です。`conn.execute(sql)` の後で `conn.fetchall()`／`conn.description`／`conn.rowcount` を接続へ直接呼び出していたコードは、返されたカーソルを使う形へ変更してください。
+
+```python
+cursor = conn.execute("select * from treats")
+rows = cursor.fetchall()
+description = cursor.description
+rowcount = cursor.rowcount
+```
+
+`with conn:` が接続をcloseすることに依存していたコードは、SQLite ではブロック後に `conn.close()` を明示的に呼び出してください。
+
 ## 障害モデル
 
 | DogDB の障害 | 振る舞い | 対応する実在障害クラス |
@@ -100,7 +133,7 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 ## 限界と安全上の前提
 
-- 接続proxyが対応する入口は`execute`、`executemany`、`fetchall`、`fetchone`、`fetchmany`、`description`、`rowcount`、`in_transaction`、`commit`、`rollback`、`close`、`dolly`、およびコンテキストマネージャです。それ以外の未知属性は、障害注入を沈黙のまま迂回させないため既定で拒否します。生接続の機能が必要な場合は`allow_native_passthrough=True`を`wrap()`へ指定できますが、その転送経路は障害注入・イベント記録・論理時計・occurrence更新の対象外です。
+- 対応する入口は上記のバックエンド別接続表面に限定します。それ以外の未知属性は、障害注入を沈黙のまま迂回させないため既定で拒否します。生接続の機能が必要な場合は`allow_native_passthrough=True`を`wrap()`へ指定できますが、その転送経路は障害注入・イベント記録・論理時計・occurrence更新の対象外です。
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
 - SQL 分類は意図的に保守的です。CTE、複文、PRAGMA、分類不能文、名前付きパラメータ、fingerprint入力域外の位置パラメータ、`executemany` へ直接faultは注入せず、faultのdecision／event／occurrenceを生成しないまま素通しします。これらの素通し操作でもmood／自動返却の論理時計は1操作として進むため、mood遷移や自動返却（`auto_return`）の状態イベントは生成され得ます。
 - 結果を `execute` 時に全件 materialize します。`max_intervention_rows`（既定 10,000）は materialize 済み結果へ fault を適用する行数上限であり、取得件数や保持メモリの上限ではありません。超過時も既定では全行を無改変で返すため、メモリ保護にはなりません。house は 1,000 件を上限とし、小規模なテストデータを前提にします。
