@@ -5,6 +5,10 @@ context: |
   今後作成する change artifacts と current specs は日本語を基本言語とする。
   OpenSpec の構造語（Requirement, Scenario, WHEN, THEN, SHALL, MUST など）は validation と可読性のため英語表記を維持する。
 
+  破壊的変更ポリシー: 最初のタグ付きリリースまでは、破壊的変更を「例外」ではなく通常の
+  選択肢として許可する。タグ以降は既存契約の BREAKING 禁止条項が適用され、破壊的変更は
+  POLICY_VERSION / semver の正規手続きを要する。
+
 rules:
   proposal:
     - 日本語で記述する。
@@ -16,6 +20,7 @@ rules:
     - Context, Goals / Non-Goals, Decisions, Risks / Trade-offs, Migration Plan, Open Questions を必要に応じて含める。
     - 決定事項、代替案、未確定の仮説を区別する。
     - production/dev/local の扱いが変わる場合は明示する。
+    - 破壊的変更を含む change は、「何が壊れるか」「なぜ設計的に妥当か」「移行方法」を記す ADR 節を必須とする。旧判断を否定するのではなく、どの前提が失効したかを書く。
 
   tasks:
     - 日本語で記述する。

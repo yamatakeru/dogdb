@@ -87,7 +87,7 @@ assert observed[0] > 0
 assert conn.dolly.log()[0].details["delay_ms"] > 0
 ```
 
-`conn.dolly.stats()`は匿名fingerprintごとのSELECT／UNKNOWN分類数と介入数を返します。生SQLや生parameterは含みません。
+`conn.dolly.stats()`は匿名fingerprintごとのSELECT／UNKNOWN分類数と介入数に加え、理由別の匿名素通し件数（`passthrough`）と、`allow_native_passthrough=True`時のネイティブ転送呼び出し回数（`escape_hatches`、属性の取得時ではなく呼び出し時に集計）を返します。生SQL、生parameter、parameterの型名は含みません。
 
 ## 使用例
 
@@ -100,9 +100,12 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 ## 限界と安全上の前提
 
+- 接続proxyが対応する入口は`execute`、`executemany`、`fetchall`、`fetchone`、`fetchmany`、`description`、`rowcount`、`in_transaction`、`commit`、`rollback`、`close`、`dolly`、およびコンテキストマネージャです。それ以外の未知属性は、障害注入を沈黙のまま迂回させないため既定で拒否します。生接続の機能が必要な場合は`allow_native_passthrough=True`を`wrap()`へ指定できますが、その転送経路は障害注入・イベント記録・論理時計・occurrence更新の対象外です。
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
-- SQL 分類は意図的に保守的です。CTE、複文、PRAGMA、分類不能文、名前付きパラメータ、`executemany` へ直接faultは注入しません。ただしmood／自動返却の論理時計は全`execute`／`executemany`で進みます。
-- 結果を `execute` 時に全件 materialize します。既定上限は 10,000 行、house は 1,000 件で、小規模なテストデータを前提にします。
+- SQL 分類は意図的に保守的です。CTE、複文、PRAGMA、分類不能文、名前付きパラメータ、fingerprint入力域外の位置パラメータ、`executemany` へ直接faultは注入せず、faultのdecision／event／occurrenceを生成しないまま素通しします。これらの素通し操作でもmood／自動返却の論理時計は1操作として進むため、mood遷移や自動返却（`auto_return`）の状態イベントは生成され得ます。
+- 結果を `execute` 時に全件 materialize します。`max_intervention_rows`（既定 10,000）は materialize 済み結果へ fault を適用する行数上限であり、取得件数や保持メモリの上限ではありません。超過時も既定では全行を無改変で返すため、メモリ保護にはなりません。house は 1,000 件を上限とし、小規模なテストデータを前提にします。
+- 大きすぎる結果を明示的にテスト失敗にするには `on_max_rows="error"` を指定します。`limit_exceeded` を記録してから非 retryable な `DollyLimitError` を送出しますが、この判定はバックエンド実行と全行 materialize の後です。必要なら `max_intervention_rows` を調整してください。
+- occurrence カウンタと fingerprint 単位の統計は、決定性を守るためセッション中に退避・再初期化せず単調増加します。長時間稼働プロセスへ常設せず、テストケースまたは小規模テストスイート単位で接続をラップし直してください。
 - JSONL は単一 writer 契約です。複数プロセスから同じファイルへ追記しないでください。
 - 本番向けの信頼性機構ではなく、テスト専用のカオスツールです。
 

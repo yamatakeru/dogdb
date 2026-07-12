@@ -9,7 +9,7 @@ class DogDBError(Exception):
         message: str,
         *,
         event_id: str,
-        fault: str,
+        fault: str | None,
         phase: str,
         retryable: bool,
         outcome: str,
@@ -39,6 +39,10 @@ class DollyBusyError(DogDBError):
 
 
 class DollyNoDropError(DogDBError):
+    pass
+
+
+class DollyLimitError(DogDBError):
     pass
 
 

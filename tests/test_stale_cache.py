@@ -92,13 +92,15 @@ def test_oversized_result_is_not_cached():
     raw = sqlite3.connect(":memory:")
     raw.execute("create table t(id integer)")
     raw.executemany("insert into t values (?)", [(1,), (2,), (3,)])
-    conn = dogdb.wrap(raw, seed=42, faults={"OLD_BONE": 1}, max_rows=2)
+    conn = dogdb.wrap(
+        raw, seed=42, faults={"OLD_BONE": 1}, max_intervention_rows=2
+    )
     conn.execute("select id from t").fetchall()
     assert conn._stale_cache.entries() == []
 
 
 def test_oversized_missing_keys_do_not_accumulate_empty_history_entries():
-    cache = StaleReadCache(include_params=False, max_rows=1)
+    cache = StaleReadCache(include_params=False, max_intervention_rows=1)
     oversized = LogicalResult(["id"], [(1,), (2,)], 2)
 
     for occurrence in range(100):

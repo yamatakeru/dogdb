@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
 
+from dogdb.adapters.base import Adapter
 from dogdb.adapters.duckdb import DuckDBAdapter
 from dogdb.adapters.sqlite import SQLiteAdapter
 from dogdb.core.auto_return import AutoReturnScheduler, parse_auto_return_config
@@ -15,7 +16,10 @@ from dogdb.core.decision import DecisionEngine
 from dogdb.core.event_log import Event, EventLog
 from dogdb.core.faults import KNOWN_FAULTS, FaultEngine, FaultPolicy
 from dogdb.core.house import HouseLedger, Treasure
-from dogdb.core.fingerprints import template_fingerprint
+from dogdb.core.fingerprints import (
+    params_in_fingerprint_domain,
+    template_fingerprint,
+)
 from dogdb.core.models import LogicalResult
 from dogdb.core.mood import MoodEngine, parse_mood_config
 from dogdb.core.sql import SQLKind, classify_sql
@@ -78,14 +82,15 @@ class DBAPIProxy:
     def __init__(
         self,
         connection: Any,
-        adapter: DuckDBAdapter | SQLiteAdapter,
+        adapter: Adapter,
         *,
+        allow_native_passthrough: bool,
         seed: object,
         session_id: str,
         include_params: bool,
         policy: FaultPolicy,
         log_path: str | Path | None,
-        max_rows: int,
+        max_intervention_rows: int,
         house_limit: int,
         only_tables: frozenset[str] | None,
         exclude_tables: frozenset[str] | None,
@@ -98,6 +103,7 @@ class DBAPIProxy:
     ) -> None:
         self._connection = connection
         self._adapter = adapter
+        self._allow_native_passthrough = allow_native_passthrough
         self._decisions = DecisionEngine(
             seed=seed, session_id=session_id, include_params=include_params
         )
@@ -108,7 +114,7 @@ class DBAPIProxy:
             self._events,
             self._house,
             policy,
-            max_rows,
+            max_intervention_rows,
             debug,
             clock,
             mood,
@@ -132,10 +138,15 @@ class DBAPIProxy:
         classification = classify_sql(sql)
         fingerprint = template_fingerprint(sql)
         self._stats.record_classification(fingerprint, classification.kind)
+        is_mapping = isinstance(params, Mapping)
+        unsupported_params = not is_mapping and not params_in_fingerprint_domain(params)
+        if unsupported_params:
+            self._stats.record_passthrough("unsupported_parameter_type")
         if (
-            isinstance(params, Mapping)
+            is_mapping
             or classification.kind is SQLKind.UNKNOWN
             or classification.is_transaction
+            or unsupported_params
         ):
             self._result = self._adapter.execute(sql, params)  # type: ignore[arg-type]
             self._offset = 0
@@ -261,10 +272,32 @@ class DBAPIProxy:
         self.close()
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._connection, name)
+        if self._allow_native_passthrough:
+            native_attr = getattr(self._connection, name)
+            if not callable(native_attr):
+                return native_attr
+            bucket = name if name in self._adapter.sql_capable_attrs else "other"
+
+            def call_native(*args: Any, **kwargs: Any) -> Any:
+                self._stats.record_escape_hatch(bucket)
+                return native_attr(*args, **kwargs)
+
+            return call_native
+        if name in self._adapter.sql_capable_attrs:
+            raise AttributeError(
+                f"DogDB cannot inject faults through native connection attribute {name!r}. "
+                "Use execute() or pass allow_native_passthrough=True to wrap()."
+            )
+        raise AttributeError(
+            f"DBAPIProxy has no supported attribute {name!r}. Supported public API: "
+            "execute(), executemany(), fetchall(), fetchone(), fetchmany(), description, "
+            "rowcount, in_transaction, commit(), rollback(), close(), dolly, and context "
+            "management. Pass allow_native_passthrough=True to wrap() for intentional "
+            "native access."
+        )
 
 
-def _adapter_for(connection: Any) -> DuckDBAdapter | SQLiteAdapter:
+def _adapter_for(connection: Any) -> Adapter:
     module = type(connection).__module__
     if module.startswith("sqlite3"):
         return SQLiteAdapter(connection)
@@ -279,6 +312,7 @@ def wrap(
     seed: object,
     session_id: str | None = None,
     include_params: bool = False,
+    allow_native_passthrough: bool = False,
     fault_probabilities: Mapping[str, float] | None = None,
     faults: Mapping[str, float] | None = None,
     stash_mode: str = "missing",
@@ -294,8 +328,8 @@ def wrap(
     mood: bool | Mapping[str, Any] | None = False,
     auto_return: bool | Mapping[str, Any] | Sequence[int] | None = False,
     log_path: str | Path | None = None,
-    event_log: str | Path | None = None,
-    max_rows: int = 10_000,
+    max_intervention_rows: int = 10_000,
+    on_max_rows: str = "skip",
     house_limit: int = 1_000,
     only_tables: Sequence[str] | None = None,
     exclude_tables: Sequence[str] | None = None,
@@ -328,14 +362,19 @@ def wrap(
         else None
     )
     stale_cache = (
-        StaleReadCache(include_params=include_params, max_rows=max_rows)
+        StaleReadCache(
+            include_params=include_params,
+            max_intervention_rows=max_intervention_rows,
+        )
         if probabilities.get("OLD_BONE", 0) > 0
         else None
     )
+    adapter = _adapter_for(connection)
     stats = StatsTracker()
     return DBAPIProxy(
         connection,
-        _adapter_for(connection),
+        adapter,
+        allow_native_passthrough=allow_native_passthrough,
         seed=seed,
         session_id=session_id,
         include_params=include_params,
@@ -343,12 +382,13 @@ def wrap(
             probabilities=probabilities,
             stash_mode=stash_mode,
             tail_chase_mode=tail_chase_mode,
+            on_max_rows=on_max_rows,
             chew_profiles=tuple(chew_profiles),
             wrong_count_max_delta=wrong_count_max_delta,
             sloth_max_delay_ms=sloth_max_delay_ms,
         ),
-        log_path=log_path if log_path is not None else event_log,
-        max_rows=max_rows,
+        log_path=log_path,
+        max_intervention_rows=max_intervention_rows,
         house_limit=house_limit,
         only_tables=_normalize_tables(only_tables),
         exclude_tables=_normalize_tables(exclude_tables),

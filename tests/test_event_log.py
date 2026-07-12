@@ -222,7 +222,7 @@ def test_limit_exceeded_event_records_metadata_without_rows(tmp_path):
         sqlite3.connect(":memory:"),
         seed=42,
         faults={"STASH": 1},
-        max_rows=2,
+        max_intervention_rows=2,
         log_path=path,
     )
     conn._connection.execute("create table t(id integer, secret text)")
@@ -237,8 +237,59 @@ def test_limit_exceeded_event_records_metadata_without_rows(tmp_path):
     assert len(rows) == 3
     assert event.event_type == "limit_exceeded"
     assert event.outcome == "fault_skipped"
-    assert event.details == {"limit": "max_rows", "configured": 2, "observed": 3}
+    assert event.details == {
+        "limit": "max_intervention_rows",
+        "configured": 2,
+        "observed": 3,
+    }
     assert secret not in path.read_text()
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "duckdb"])
+def test_limit_error_is_logged_before_it_is_raised(backend):
+    if backend == "sqlite":
+        raw = sqlite3.connect(":memory:")
+    else:
+        import duckdb
+
+        raw = duckdb.connect(":memory:")
+    raw.execute("create table t(id integer)")
+    raw.executemany("insert into t values (?)", [(1,), (2,), (3,)])
+    conn = dogdb.wrap(
+        raw,
+        seed=42,
+        max_intervention_rows=2,
+        on_max_rows="error",
+    )
+
+    with pytest.raises(dogdb.DollyLimitError) as caught:
+        conn.execute("select id from t").fetchall()
+
+    event = conn.dolly.log()[-1]
+    assert event.event_type == "limit_exceeded"
+    assert event.outcome == "error"
+    assert caught.value.event_id == event.event_id
+    assert caught.value.fault is None
+    assert caught.value.retryable is False
+    assert "max_intervention_rows" in str(caught.value)
+
+
+def test_on_max_rows_rejects_unknown_mode():
+    with pytest.raises(ValueError, match="on_max_rows"):
+        dogdb.wrap(
+            sqlite3.connect(":memory:"),
+            seed=42,
+            on_max_rows="truncate",
+        )
+
+
+def test_event_log_alias_is_not_accepted():
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        dogdb.wrap(
+            sqlite3.connect(":memory:"),
+            seed=42,
+            **{"event_log": "events.jsonl"},
+        )
 
 
 def test_debug_records_non_firing_decisions_only_when_enabled():

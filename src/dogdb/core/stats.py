@@ -20,6 +20,8 @@ class StatsTracker:
         self._values: defaultdict[str, FingerprintStats] = defaultdict(
             FingerprintStats
         )
+        self._escape_hatches = {"other": 0}
+        self._passthrough: defaultdict[str, int] = defaultdict(int)
 
     def record_classification(self, fingerprint: str, kind: SQLKind) -> None:
         if kind is SQLKind.SELECT:
@@ -30,6 +32,12 @@ class StatsTracker:
     def record_intervention(self, fingerprint: str) -> None:
         self._values[fingerprint].interventions += 1
 
+    def record_escape_hatch(self, name: str) -> None:
+        self._escape_hatches[name] = self._escape_hatches.get(name, 0) + 1
+
+    def record_passthrough(self, reason: str) -> None:
+        self._passthrough[reason] += 1
+
     def snapshot(self) -> dict[str, object]:
         fingerprints = {
             fingerprint: asdict(value)
@@ -37,6 +45,8 @@ class StatsTracker:
         }
         return {
             "fingerprints": fingerprints,
+            "escape_hatches": dict(self._escape_hatches),
+            "passthrough": dict(sorted(self._passthrough.items())),
             "totals": {
                 key: sum(value[key] for value in fingerprints.values())
                 for key in ("select", "unknown", "interventions")
