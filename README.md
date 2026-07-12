@@ -45,7 +45,7 @@ DogDB は介入コアを共有しますが、接続表面は各ネイティブ�
 
 ### DuckDB
 
-`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を利用できます。`description` は DuckDB ネイティブの列名と型情報を無変換で透過します。`cursor()` は DuckDB ネイティブのクローン接続を新しい `DuckDBProxy` で包んで返し、クローンの `cursor()` も同様です。親子は decision・イベント・stats・house・論理時計を共有し、セッションは全クローン横断の `execute()` 呼び出し順として扱われます。一方、各クローンのトランザクション分離と close の対象は DuckDB ネイティブと同じであり、DogDB は変更しません。`with conn:` は終了時にその接続をcloseします。遅延評価 relation を返す `sql()`／`query`／`table` は引き続き fail-closed で、`execute()` または `allow_native_passthrough=True` を案内する `AttributeError` を送出します。
+`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を利用できます。`description` は、障害適用後の列名と DuckDB ネイティブの型情報（第2スロット、無変換）から再構成されます。TANGLED_LEASH で列名が入れ替わっても、型情報は値の列位置に留まります。`cursor()` は DuckDB ネイティブのクローン接続を新しい `DuckDBProxy` で包んで返し、クローンの `cursor()` も同様です。親子は decision・イベント・stats・house・論理時計を共有し、セッションは全クローン横断の `execute()` 呼び出し順として扱われます。一方、各クローンのトランザクション分離と close の対象は DuckDB ネイティブと同じであり、DogDB は変更しません。`with conn:` は終了時にその接続をcloseします。遅延評価 relation を返す `sql()`／`query`／`table` は引き続き fail-closed で、`execute()` または `allow_native_passthrough=True` を案内する `AttributeError` を送出します。
 
 ### 明示的不忠実
 
@@ -142,6 +142,7 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 ## 限界と安全上の前提
 
+- 決定性の保証単位はセッション全体です。同一 seed・session・設定で、セッション先頭から同一の順序付き操作列を流した場合のみ同じ障害列を再現し、途中からの部分 replay は保証しません。
 - 対応する入口は上記のバックエンド別接続表面に限定します。それ以外の未知属性は、障害注入を沈黙のまま迂回させないため既定で拒否します。生接続の機能が必要な場合は`allow_native_passthrough=True`を`wrap()`へ指定できますが、その転送経路は障害注入・イベント記録・論理時計・occurrence更新の対象外です。
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
 - SQL 分類は意図的に保守的です。CTE、複文、PRAGMA、分類不能文、名前付きパラメータ、fingerprint入力域外の位置パラメータ、`executemany` へ直接faultは注入せず、faultのdecision／event／occurrenceを生成しないまま素通しします。これらの素通し操作でもmood／自動返却の論理時計は1操作として進むため、mood遷移や自動返却（`auto_return`）の状態イベントは生成され得ます。
