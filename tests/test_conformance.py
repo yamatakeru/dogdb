@@ -77,7 +77,9 @@ def test_backends_produce_matching_fault_events():
         rows = conn.execute("select id from t").fetchall()
         signatures.append(
             (
-                rows,
+                # ORDER BYのないクエリの行順序はバックエンド間一致の対象外
+                # （SHUFFLEはORDER BYなしでのみ発火するため多重集合で比較する）。
+                sorted(rows),
                 [
                     (event.fault, event.decision_key, event.outcome)
                     for event in conn.dolly.log()

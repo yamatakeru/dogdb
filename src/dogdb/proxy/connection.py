@@ -365,6 +365,11 @@ class DuckDBProxy:
         )
 
 
+_ROWCOUNT_VISIBLE_FAULTS = frozenset(
+    {"FALSE_EMPTY", "TAIL_CHASE", "ECHO", "PAGE_HOLE", "WRONG_COUNT"}
+)
+
+
 class CursorProxy:
     """SQLite-faithful cursor surface with an intervention-backed result slot."""
 
@@ -381,10 +386,18 @@ class CursorProxy:
         self._result = self._engine.execute(sql, params)
         self._offset = 0
         new_events = self._engine._events.events()[event_count:]
-        intervened = any(event.event_type == "fault_injected" for event in new_events)
+        # Native sqlite3 reports -1 for SELECT rowcount regardless of fetch
+        # state; only faults whose declared symptom involves the result count
+        # surface through rowcount. This fault set is provisional until the
+        # fault-taxonomy change closes the vocabulary.
+        count_intervened = any(
+            event.event_type == "fault_injected"
+            and event.fault in _ROWCOUNT_VISIBLE_FAULTS
+            for event in new_events
+        )
         self._reported_rowcount = (
             self._result.rowcount
-            if intervened or not self._result.columns
+            if count_intervened or not self._result.columns
             else -1
         )
         return self
@@ -536,7 +549,13 @@ class SQLiteProxy:
         traceback: object,
     ) -> None:
         if exc_type is None:
-            self.commit()
+            try:
+                self.commit()
+            except Exception:
+                # Native sqlite3 (3.12+) rolls back when the implicit commit
+                # fails, then propagates the commit error (measured on 3.13).
+                self.rollback()
+                raise
         else:
             self.rollback()
 
