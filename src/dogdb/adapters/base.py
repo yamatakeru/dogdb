@@ -28,5 +28,6 @@ def materialize(cursor: Any) -> LogicalResult:
     if description is None:
         return LogicalResult([], [], getattr(cursor, "rowcount", -1))
     columns = [str(column[0]) for column in description]
+    column_types = [column[1] if len(column) > 1 else None for column in description]
     rows = [tuple(row) for row in cursor.fetchall()]
-    return LogicalResult(columns, rows, len(rows))
+    return LogicalResult(columns, rows, len(rows), column_types)

@@ -343,7 +343,9 @@ class FaultEngine:
             rows = [row for index, row in enumerate(result.rows) if index not in hidden]
             if self.intervention_callback is not None:
                 self.intervention_callback(decision.template_fingerprint)
-            return LogicalResult(result.columns, rows, len(rows))
+            return LogicalResult(
+                result.columns, rows, len(rows), result.column_types
+            )
 
         candidates: list[str] = []
         chew_choice = (
@@ -489,7 +491,7 @@ class FaultEngine:
                 outcome="read_partial",
             )
         rows = result.rows[:row_index] + result.rows[row_index + 1 :]
-        return LogicalResult(result.columns, rows, len(rows))
+        return LogicalResult(result.columns, rows, len(rows), result.column_types)
 
     def _shuffle(self, decision: Decision, result: LogicalResult) -> LogicalResult:
         rows = list(result.rows)
@@ -503,7 +505,7 @@ class FaultEngine:
         if rows == result.rows:
             rows[0], rows[1] = rows[1], rows[0]
         self._event(decision, fault="SHUFFLE", outcome="rows_reordered", details={})
-        return LogicalResult(result.columns, rows, len(rows))
+        return LogicalResult(result.columns, rows, len(rows), result.column_types)
 
     def _derived_index(self, decision: Decision, tag: str, size: int) -> int:
         digest = self.decisions.derive(decision.decision_key, tag)
@@ -519,7 +521,9 @@ class FaultEngine:
             outcome="rows_duplicated",
             details={"row_index": row_index},
         )
-        return LogicalResult(list(result.columns), rows, len(rows))
+        return LogicalResult(
+            list(result.columns), rows, len(rows), result.column_types
+        )
 
     def _tail_chase(
         self, decision: Decision, result: LogicalResult
@@ -549,7 +553,9 @@ class FaultEngine:
                 delivered_rows=delivered,
             )
         rows = result.rows[:delivered]
-        return LogicalResult(list(result.columns), rows, len(rows))
+        return LogicalResult(
+            list(result.columns), rows, len(rows), result.column_types
+        )
 
     def _false_empty(
         self, decision: Decision, result: LogicalResult
@@ -560,7 +566,9 @@ class FaultEngine:
             outcome="empty_result",
             details={},
         )
-        return LogicalResult(list(result.columns), [], 0)
+        return LogicalResult(
+            list(result.columns), [], 0, result.column_types
+        )
 
     def _page_hole(
         self, decision: Decision, result: LogicalResult
@@ -575,7 +583,9 @@ class FaultEngine:
             outcome="page_hole",
             details={"rows_removed": removed},
         )
-        return LogicalResult(list(result.columns), rows, len(rows))
+        return LogicalResult(
+            list(result.columns), rows, len(rows), result.column_types
+        )
 
     def _tangled_leash(
         self, decision: Decision, result: LogicalResult
@@ -591,7 +601,9 @@ class FaultEngine:
             outcome="column_labels_swapped",
             details={"column_indices": [left, left + 1]},
         )
-        return LogicalResult(columns, list(result.rows), result.rowcount)
+        return LogicalResult(
+            columns, list(result.rows), result.rowcount, result.column_types
+        )
 
     def _chew_choice(
         self, decision: Decision, result: LogicalResult
@@ -637,7 +649,9 @@ class FaultEngine:
                 "profile": profile,
             },
         )
-        return LogicalResult(list(result.columns), rows, result.rowcount)
+        return LogicalResult(
+            list(result.columns), rows, result.rowcount, result.column_types
+        )
 
     def _wrong_count(
         self, decision: Decision, result: LogicalResult
@@ -658,7 +672,9 @@ class FaultEngine:
                 "reported_rowcount": reported,
             },
         )
-        return LogicalResult(list(result.columns), list(result.rows), reported)
+        return LogicalResult(
+            list(result.columns), list(result.rows), reported, result.column_types
+        )
 
     def _old_bone(
         self, decision: Decision, history: list[StaleEntry]
@@ -676,6 +692,7 @@ class FaultEngine:
             list(selected.result.columns),
             [tuple(row) for row in selected.result.rows],
             selected.result.rowcount,
+            selected.result.column_types,
         )
 
 

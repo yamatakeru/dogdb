@@ -83,8 +83,6 @@ class DollyNamespace:
 class _InterventionEngine:
     def __init__(
         self,
-        connection: Any,
-        adapter: Adapter,
         *,
         seed: object,
         session_id: str,
@@ -102,8 +100,6 @@ class _InterventionEngine:
         stale_cache: StaleReadCache | None,
         stats: StatsTracker,
     ) -> None:
-        self._connection = connection
-        self._adapter = adapter
         self._decisions = DecisionEngine(
             seed=seed, session_id=session_id, include_params=include_params
         )
@@ -132,7 +128,10 @@ class _InterventionEngine:
         self.dolly = DollyNamespace(self)
 
     def execute(
-        self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
+        self,
+        adapter: Adapter,
+        sql: str,
+        params: Sequence[Any] | Mapping[str, Any] | None = None,
     ) -> LogicalResult:
         self._begin_operation()
         classification = classify_sql(sql)
@@ -148,7 +147,7 @@ class _InterventionEngine:
             or classification.is_transaction
             or unsupported_params
         ):
-            return self._adapter.execute(sql, params)  # type: ignore[arg-type]
+            return adapter.execute(sql, params)  # type: ignore[arg-type]
 
         template, parameter, occurrence = self._decisions.begin(
             sql, params, template_fingerprint=fingerprint
@@ -167,7 +166,7 @@ class _InterventionEngine:
                 phase="before_execute",
             )
             before_consumed = self._faults.before_execute(before)
-        result = self._adapter.execute(sql, params)
+        result = adapter.execute(sql, params)
         scoped_select = scoped and classification.kind is SQLKind.SELECT
         cache_result = self._stale_cache is not None and scoped_select
         oversized_result = (
@@ -239,9 +238,11 @@ class _InterventionEngine:
             return tables is None or not bool(tables & self._exclude_tables)
         return True
 
-    def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> LogicalResult:
+    def executemany(
+        self, connection: Any, sql: str, params: Sequence[Sequence[Any]]
+    ) -> LogicalResult:
         self._begin_operation()
-        cursor = self._connection.executemany(sql, params)
+        cursor = connection.executemany(sql, params)
         return LogicalResult([], [], getattr(cursor, "rowcount", -1))
 
 
@@ -254,20 +255,18 @@ class _EngineBackedSurface:
         adapter: Adapter,
         *,
         allow_native_passthrough: bool,
+        shared_engine: _InterventionEngine | None = None,
         **engine_options: Any,
     ) -> None:
-        self._engine = _InterventionEngine(connection, adapter, **engine_options)
+        self._engine = (
+            shared_engine
+            if shared_engine is not None
+            else _InterventionEngine(**engine_options)
+        )
         self._connection = connection
+        self._adapter = adapter
         self._allow_native_passthrough = allow_native_passthrough
         self.dolly = self._engine.dolly
-
-    @property
-    def _adapter(self) -> Adapter:
-        return self._engine._adapter
-
-    @_adapter.setter
-    def _adapter(self, adapter: Adapter) -> None:
-        self._engine._adapter = adapter
 
     @property
     def _decisions(self) -> DecisionEngine:
@@ -330,12 +329,14 @@ class DuckDBProxy(_EngineBackedSurface):
         adapter: Adapter,
         *,
         allow_native_passthrough: bool,
+        shared_engine: _InterventionEngine | None = None,
         **engine_options: Any,
     ) -> None:
         super().__init__(
             connection,
             adapter,
             allow_native_passthrough=allow_native_passthrough,
+            shared_engine=shared_engine,
             **engine_options,
         )
         self._result = LogicalResult([], [], -1)
@@ -344,12 +345,12 @@ class DuckDBProxy(_EngineBackedSurface):
     def execute(
         self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
     ) -> DuckDBProxy:
-        self._result = self._engine.execute(sql, params)
+        self._result = self._engine.execute(self._adapter, sql, params)
         self._offset = 0
         return self
 
     def executemany(self, sql: str, params: Sequence[Sequence[Any]]) -> DuckDBProxy:
-        self._result = self._engine.executemany(sql, params)
+        self._result = self._engine.executemany(self._connection, sql, params)
         self._offset = 0
         return self
 
@@ -372,10 +373,14 @@ class DuckDBProxy(_EngineBackedSurface):
         return list(rows)
 
     @property
-    def description(self) -> tuple[tuple[str, None, None, None, None, None, None], ...] | None:
+    def description(self) -> list[tuple[Any, ...]] | None:
         if not self._result.columns:
             return None
-        return tuple((name, None, None, None, None, None, None) for name in self._result.columns)
+        column_types = self._result.column_types or [None] * len(self._result.columns)
+        return [
+            (name, column_type, None, None, None, None, None)
+            for name, column_type in zip(self._result.columns, column_types)
+        ]
 
     @property
     def rowcount(self) -> int:
@@ -384,6 +389,15 @@ class DuckDBProxy(_EngineBackedSurface):
     @property
     def in_transaction(self) -> bool:
         return self._adapter.in_transaction
+
+    def cursor(self) -> DuckDBProxy:
+        clone = self._connection.cursor()
+        return DuckDBProxy(
+            clone,
+            DuckDBAdapter(clone),
+            allow_native_passthrough=self._allow_native_passthrough,
+            shared_engine=self._engine,
+        )
 
     def commit(self) -> None:
         self._connection.commit()
@@ -406,7 +420,8 @@ class DuckDBProxy(_EngineBackedSurface):
             return value
         raise AttributeError(
             f"DuckDBProxy has no supported attribute {name!r}. Supported public API: "
-            "execute(), executemany(), fetchall(), fetchone(), fetchmany(), description, "
+            "execute(), executemany(), cursor(), fetchall(), fetchone(), fetchmany(), "
+            "description, "
             "rowcount, in_transaction, commit(), rollback(), close(), dolly, and context "
             "management. Pass allow_native_passthrough=True to wrap() for intentional "
             "native access."
@@ -421,8 +436,12 @@ _ROWCOUNT_VISIBLE_FAULTS = frozenset(
 class CursorProxy:
     """SQLite-faithful cursor surface with an intervention-backed result slot."""
 
-    def __init__(self, engine: _InterventionEngine) -> None:
+    def __init__(
+        self, engine: _InterventionEngine, connection: Any, adapter: Adapter
+    ) -> None:
         self._engine = engine
+        self._connection = connection
+        self._adapter = adapter
         self._result = LogicalResult([], [], -1)
         self._offset = 0
         self._reported_rowcount = -1
@@ -431,7 +450,7 @@ class CursorProxy:
         self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None
     ) -> CursorProxy:
         event_count = len(self._engine._events.events())
-        self._result = self._engine.execute(sql, params)
+        self._result = self._engine.execute(self._adapter, sql, params)
         self._offset = 0
         new_events = self._engine._events.events()[event_count:]
         # Native sqlite3 reports -1 for SELECT rowcount regardless of fetch
@@ -453,7 +472,7 @@ class CursorProxy:
     def executemany(
         self, sql: str, params: Sequence[Sequence[Any]]
     ) -> CursorProxy:
-        self._result = self._engine.executemany(sql, params)
+        self._result = self._engine.executemany(self._connection, sql, params)
         self._offset = 0
         self._reported_rowcount = self._result.rowcount
         return self
@@ -530,7 +549,7 @@ class SQLiteProxy(_EngineBackedSurface):
         return self.cursor().executemany(sql, params)
 
     def cursor(self) -> CursorProxy:
-        return CursorProxy(self._engine)
+        return CursorProxy(self._engine, self._connection, self._adapter)
 
     @property
     def in_transaction(self) -> bool:

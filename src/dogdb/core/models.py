@@ -12,6 +12,7 @@ class LogicalResult:
     columns: list[str]
     rows: list[tuple[Any, ...]]
     rowcount: int
+    column_types: list[Any] | None = None
 
 
 class Decision:

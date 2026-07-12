@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 import dogdb
-from dogdb.proxy import CursorProxy
+from dogdb.proxy import CursorProxy, DuckDBProxy
 
 
 class TrackingSQLiteConnection(sqlite3.Connection):
@@ -38,8 +38,11 @@ class TrackingDuckDBConnection:
             accesses[name] = accesses.get(name, 0) + 1
         return object.__getattribute__(self, name)
 
-    def cursor(self) -> None:
-        raise AssertionError("native cursor must not be reached")
+    def cursor(self) -> TrackingDuckDBConnection:
+        return TrackingDuckDBConnection()
+
+    def close(self) -> None:
+        pass
 
     def interrupt(self) -> None:
         raise AssertionError("native interrupt must not be reached")
@@ -54,18 +57,16 @@ def _tracking_sqlite() -> TrackingSQLiteConnection:
     return raw
 
 
-def test_fail_closed_duckdb_cursor_does_not_reach_native_connection():
+def test_duckdb_cursor_returns_wrapped_clone_with_shared_engine():
     raw = TrackingDuckDBConnection()
     conn = dogdb.wrap(raw, seed=42)
 
-    with pytest.raises(AttributeError) as error:
-        _ = conn.cursor
+    clone = conn.cursor()
 
-    message = str(error.value)
-    assert "cannot inject faults" in message
-    assert "execute()" in message
-    assert "allow_native_passthrough=True" in message
-    assert raw.native_accesses.get("cursor", 0) == 0
+    assert isinstance(clone, DuckDBProxy)
+    assert clone is not conn
+    assert clone.dolly is conn.dolly
+    assert raw.native_accesses.get("cursor", 0) == 1
 
 
 def test_sqlite_cursor_uses_proxy_without_reaching_native_connection():

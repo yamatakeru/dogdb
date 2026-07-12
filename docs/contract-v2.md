@@ -8,7 +8,7 @@
 
 parameter fingerprint の入力域は、JSONネイティブのscalar値と、厳密な型一致による `bytes`、`bytearray`、`datetime.date`、`datetime.time`、`datetime.datetime`、`Decimal`、`UUID` に閉じる。サブクラスや独自型を含む入力域外の位置パラメータ操作は、fingerprint、decision、event、occurrenceを生成せずバックエンドへ素通しする。素通し操作でもmood／自動返却の論理時計は1操作として進める。発生数は `dolly.stats()["passthrough"]["unsupported_parameter_type"]` に記録し、生パラメータ、型名、reprを統計へ含めてはならない。将来この操作を障害注入対象にする場合は、occurrenceとreplay系列が変わるため、`POLICY_VERSION` 更新の要否を判断しなければならない。
 
-occurrence カウンタおよび fingerprint 単位の統計はセッション中に退避または再初期化してはならず、単調増加する。occurrence の再利用は決定キーを変えるためである。セッションはテストケースまたは小規模テストスイート単位で作り直し、長時間稼働プロセスへ常設しない。
+occurrence カウンタおよび fingerprint 単位の統計はセッション中に退避または再初期化してはならず、単調増加する。occurrence の再利用は決定キーを変えるためである。DuckDB のセッションは親接続と全 `cursor()` クローンを横断する `execute()` 呼び出しの全順序であり、stats・house・イベントログ・論理時計は意図して合算する。セッションはテストケースまたは小規模テストスイート単位で作り直し、長時間稼働プロセスへ常設しない。
 
 決定キーから用途別の値を得る標準導出は次式とする。
 
@@ -118,7 +118,11 @@ escape hatchの値はnative methodの**呼び出し回数**であり、backend�
 
 ### DuckDB 表面
 
-DuckDB の公開表面は従来どおりである。`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を提供する。`with conn:` は終了時に接続を close する。`cursor()` と `sql()` は宣言した介入表面外であり、既定では従来どおり誘導付きの `AttributeError` で fail-closed とする。
+`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を提供する。`description` は、障害適用後の列名と DuckDB ネイティブの第2スロットの型情報から `(name, type, None, None, None, None, None)` を再構成する。型情報は正規化せず、TANGLED_LEASH で列名が入れ替わっても値を記述する列位置に留める。
+
+`cursor()` はネイティブのクローン接続を同型の `DuckDBProxy` で包んで返し、クローンの `cursor()` も再帰的に同様に包む。親子は介入コアを共有するため、decision・occurrence・イベント・stats・house・論理時計は全クローン横断で合算される。一方、SQL の実行先、トランザクション文脈、`close()`／`__exit__` の対象は各ネイティブ接続に属する。親子・クローン間のトランザクション分離は DuckDB ネイティブと同型であり、DogDB は変更・管理・検出しない。クローンを閉じても共有介入コアには影響しない。`with conn:` は終了時にその接続を close する。
+
+遅延評価 relation を返す `sql()`／`query`／`table` は宣言した介入表面外であり、既定では誘導付きの `AttributeError` で fail-closed とする。
 
 ### 明示的不忠実
 

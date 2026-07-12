@@ -58,6 +58,7 @@ class StaleReadCache:
                 list(result.columns),
                 [tuple(row) for row in result.rows],
                 result.rowcount,
+                None if result.column_types is None else list(result.column_types),
             ),
         )
         self._entries[(key, decision.occurrence)] = entry
