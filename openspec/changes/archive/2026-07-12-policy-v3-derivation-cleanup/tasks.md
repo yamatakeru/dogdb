@@ -25,5 +25,5 @@
 ## 4. 検証とGitHub連携
 
 - [x] 4.1 `openspec validate policy-v3-derivation-cleanup` が通ることを確認する
-- [ ] 4.2 issue #7 へ完了コメントを投稿しクローズする（PRマージ後）
-- [ ] 4.3 統括issue #11 のW3-aチェックボックスを更新する（PRマージ後）
+- [x] 4.2 issue #7 へ完了コメントを投稿しクローズする（PRマージ後）
+- [x] 4.3 統括issue #11 のW3-aチェックボックスを更新する（PRマージ後）
