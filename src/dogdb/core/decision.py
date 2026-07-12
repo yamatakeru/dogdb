@@ -81,9 +81,7 @@ class DecisionEngine:
         if self.include_params:
             parts.append(parameter() if callable(parameter) else parameter)
         digest = hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
-        return Decision(
-            template, parameter, occurrence, phase, f"sha256:{digest}"
-        )
+        return Decision(template, parameter, occurrence, phase, f"sha256:{digest}")
 
     @staticmethod
     def derive(decision_key: str, tag: str) -> bytes:

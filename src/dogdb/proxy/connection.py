@@ -168,14 +168,10 @@ class _InterventionEngine:
             )
             before_consumed = self._faults.before_execute(before)
         result = self._adapter.execute(sql, params)
-        cache_result = (
-            self._stale_cache is not None
-            and scoped
-            and classification.kind is SQLKind.SELECT
-        )
+        scoped_select = scoped and classification.kind is SQLKind.SELECT
+        cache_result = self._stale_cache is not None and scoped_select
         oversized_result = (
-            scoped
-            and classification.kind is SQLKind.SELECT
+            scoped_select
             and len(result.rows) > self._faults.max_intervention_rows
         )
         evaluate_on_result = scoped and (
