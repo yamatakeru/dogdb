@@ -100,7 +100,7 @@ STASH / SHUFFLE / IGNORE は v1 の決定値とイベント列を維持するた
 | `limit_exceeded` | `error` | 介入上限を超えたイベントを記録後、`DollyLimitError` を送出した |
 | `decision_evaluated` | `not_injected` | debug 評価では候補を調べたが fault は適用されなかった |
 
-`limit_exceeded.details.limit` は現在 `max_intervention_rows`、`configured` は設定上限、`observed` は materialize された行数である。旧識別子は policy v3 以前に記録された履歴イベントにのみ出現する。生SQL、生パラメータ、生行値をイベントへ含めてはならない。
+`limit_exceeded.details.limit` は現在 `max_intervention_rows`、`configured` は設定上限、`observed` は materialize された行数である。旧識別子 `max_rows` は、本変更（`max-rows-and-session-limits`）適用前に記録された履歴イベントにのみ出現する。生SQL、生パラメータ、生行値をイベントへ含めてはならない。
 
 ## native passthrough と escape hatch 統計
 

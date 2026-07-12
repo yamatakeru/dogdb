@@ -77,7 +77,10 @@ def test_fail_closed_duckdb_sql_does_not_reach_native_connection():
     with pytest.raises(AttributeError) as error:
         _ = conn.sql
 
-    assert "cannot inject faults" in str(error.value)
+    message = str(error.value)
+    assert "cannot inject faults" in message
+    assert "execute()" in message
+    assert "allow_native_passthrough=True" in message
     assert raw.native_accesses.get("sql", 0) == 0
 
 
