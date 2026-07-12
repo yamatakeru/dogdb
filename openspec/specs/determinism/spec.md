@@ -29,11 +29,15 @@
 - **THEN** 両者の `decision_key` は異なる値になる
 
 ### Requirement: パラメータfingerprintの入力域
-`parameter_fingerprint` の計算は、次の閉じた許可リストの値のみを受け付けなければならない（MUST）: JSONネイティブ値（null・真偽値・数値・文字列）、および厳密な型一致による `bytes`・`bytearray`・`datetime.date`・`datetime.time`・`datetime.datetime`・`Decimal`・`UUID`。これらは決定的にエンコードされる（SHALL）。サブクラスや独自型を含む上記以外の値は、たとえ安定した表現を持っていても、実行前に `TypeError` で拒否されなければならず（MUST）、イベントを記録してはならない（MUST NOT）。この制限は `include_params` の設定に関わらず適用される — `parameter_fingerprint` は全イベントの必須フィールドとして記録されるため、不安定なエンコードは「同一入力列は同一イベント列」の保証を破るからである。
+`parameter_fingerprint` の計算は、次の閉じた許可リストの値のみを受け付けなければならない（MUST）: JSONネイティブ値（null・真偽値・数値・文字列）、および厳密な型一致による `bytes`・`bytearray`・`datetime.date`・`datetime.time`・`datetime.datetime`・`Decimal`・`UUID`。これらは決定的にエンコードされる（SHALL）。サブクラスや独自型を含む上記以外の値を持つ操作は、fingerprint を計算せず、対応範囲外操作としてバックエンドへ素通ししなければならない（SHALL）。素通しされた操作について decision・イベント・occurrence を生成してはならない（MUST NOT）。入力域外の値を理由に操作を失敗させてはならない（MUST NOT）。不安定な表現から fingerprint を導出してはならず（MUST NOT）、`repr`・pickle・型名によるフォールバック fingerprint を用いてはならない（MUST NOT）。この規則は `include_params` の設定に関わらず適用される — `parameter_fingerprint` は記録される全イベントの必須フィールドであるため、不安定なエンコードを排除する唯一の安全な方法は、当該操作をイベント系列自体に参加させないことである。
 
-#### Scenario: 不安定な表現しか持たない値は拒否される
-- **WHEN** `__repr__` を定義しない任意のオブジェクトをバインドパラメータとして渡す
-- **THEN** 実行は `TypeError` で拒否され、イベントは記録されない
+#### Scenario: 入力域外の値は素通しされる
+- **WHEN** `__conform__` のみを定義した独自型をバインドパラメータとして渡す
+- **THEN** 操作はバックエンドへ無介入で委譲され、生接続と同一の結果（または同一のバックエンド例外）が得られ、イベントは記録されない
+
+#### Scenario: 素通しは後続の決定に影響しない
+- **WHEN** 同一クエリAを実行し、入力域外パラメータの操作を挟み、再びクエリAを実行する
+- **THEN** クエリAの2回の実行の `occurrence` は 1, 2 であり、素通し操作を挟まない場合と同一の `decision_key` になる
 
 #### Scenario: 安定表現を持つ標準型は決定的に処理される
 - **WHEN** datetime・Decimal・UUID・bytes を含むパラメータで同一クエリを2回実行する
@@ -66,3 +70,10 @@
 #### Scenario: 途中から再開しても同じにはならない
 - **WHEN** 20操作のセッションの後半10操作だけを新しいセッションとして実行する
 - **THEN** 論理時計とmood状態が異なるため、イベント列の一致は保証されない（これは仕様どおりの挙動である）
+
+### Requirement: セッション状態の不退避
+occurrence カウンターおよび fingerprint 単位の統計は、セッション存続中に退避（eviction）や再初期化を行ってはならない（MUST NOT）。これらはセッション内で単調増加であり、退避による occurrence の再利用は同一入力列に対する決定キーを変化させるため禁止される。セッションの想定寿命はテストケースまたは小規模テストスイート単位であり、長時間稼働プロセスへの常設を想定しないことを契約文書に明記しなければならない（SHALL）。
+
+#### Scenario: 大量テンプレートでも退避されない
+- **WHEN** セッション内で相異なるSQLテンプレートを大量（例: 10,000種）に実行した後、最初のテンプレートを再実行する
+- **THEN** 再実行の `occurrence` は 2 であり、決定キーはテンプレート数の影響を受けない
