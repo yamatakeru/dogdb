@@ -8,7 +8,7 @@
 
 parameter fingerprint の入力域は、JSONネイティブのscalar値と、厳密な型一致による `bytes`、`bytearray`、`datetime.date`、`datetime.time`、`datetime.datetime`、`Decimal`、`UUID` に閉じる。サブクラスや独自型を含む入力域外の位置パラメータ操作は、fingerprint、decision、event、occurrenceを生成せずバックエンドへ素通しする。素通し操作でもmood／自動返却の論理時計は1操作として進める。発生数は `dolly.stats()["passthrough"]["unsupported_parameter_type"]` に記録し、生パラメータ、型名、reprを統計へ含めてはならない。将来この操作を障害注入対象にする場合は、occurrenceとreplay系列が変わるため、`POLICY_VERSION` 更新の要否を判断しなければならない。
 
-occurrence カウンタおよび fingerprint 単位の統計はセッション中に退避または再初期化してはならず、単調増加する。occurrence の再利用は決定キーを変えるためである。セッションはテストケースまたは小規模テストスイート単位で作り直し、長時間稼働プロセスへ常設しない。
+occurrence カウンタおよび fingerprint 単位の統計はセッション中に退避または再初期化してはならず、単調増加する。occurrence の再利用は決定キーを変えるためである。DuckDB のセッションは親接続と全 `cursor()` クローンを横断する `execute()` 呼び出しの全順序であり、stats・house・イベントログ・論理時計は意図して合算する。セッションはテストケースまたは小規模テストスイート単位で作り直し、長時間稼働プロセスへ常設しない。
 
 決定キーから用途別の値を得る標準導出は次式とする。
 
@@ -37,30 +37,40 @@ wall-clock、OS 乱数、Python の組み込み `hash()` を決定へ使って�
 | `event:<seq>:<event-name>` | event ID |
 | `treasure:<row-index>` | treasure ID |
 
+`category` と `severity` は障害の説明属性であり、上の決定タグ表および
+decision key の導出入力には加えない。taxonomy の追加によって
+`POLICY_VERSION` や既存の決定キーを変更してはならない。
+
 ## fault 合成規則
 
 1操作へ適用する fault は最大1つとする。候補は次の固定全順序で評価し、前提条件を満たし、かつ発火した最初の1件だけを適用する。未指定の障害の base weight は0である。
 
-| order | phase | classification | fault |
-|---:|---|---|---|
-| 1 | `before_execute` | failure injection | BARK |
-| 2 | `before_execute` | failure injection | GUARD_BOWL |
-| 3 | `before_execute` | failure injection | IGNORE |
-| 4 | `before_execute` | temporal | SLOTH |
-| 5 | `on_result` | failure injection | NO_DROP |
-| 6 | `on_result` | failure injection | STASH（error mode） |
-| 7 | `on_result` | silent / shape | STASH（missing mode） |
-| 8 | `on_result` | silent / shape | FALSE_EMPTY |
-| 9 | `on_result` | silent / shape | TAIL_CHASE |
-| 10 | `on_result` | silent / shape | PAGE_HOLE |
-| 11 | `on_result` | silent / shape | ECHO |
-| 12 | `on_result` | silent / shape | SHUFFLE |
-| 13 | `on_result` | silent / value | TANGLED_LEASH |
-| 14 | `on_result` | silent / value | CHEW |
-| 15 | `on_result` | silent / value | WRONG_COUNT |
-| 16 | `on_result` | silent / state | OLD_BONE |
+| order | phase | category | severity | fault |
+|---:|---|---|---|---|
+| 1 | `before_execute` | `failure_injection` | `error` | BARK |
+| 2 | `before_execute` | `failure_injection` | `error` | GUARD_BOWL |
+| 3 | `before_execute` | `failure_injection` | `error` | IGNORE |
+| 4 | `before_execute` | `temporal` | `delay` | SLOTH |
+| 5 | `on_result` | `failure_injection` | `error` | NO_DROP |
+| 6 | `on_result` | `shape` | `error` | STASH（error mode） |
+| 7 | `on_result` | `shape` | `silent_corruption` | STASH（missing mode） |
+| 8 | `on_result` | `shape` | `silent_corruption` | FALSE_EMPTY |
+| 9 | `on_result` | `shape` | `error`（error mode）／`silent_corruption`（silent mode） | TAIL_CHASE |
+| 10 | `on_result` | `shape` | `silent_corruption` | PAGE_HOLE |
+| 11 | `on_result` | `shape` | `silent_corruption` | ECHO |
+| 12 | `on_result` | `shape` | `silent_corruption` | SHUFFLE |
+| 13 | `on_result` | `value` | `silent_corruption` | TANGLED_LEASH |
+| 14 | `on_result` | `value` | `silent_corruption` | CHEW |
+| 15 | `on_result` | `value` | `silent_corruption` | WRONG_COUNT |
+| 16 | `on_result` | `state` | `silent_corruption` | OLD_BONE |
 
-`before_execute` の failure injection が発火した場合は backend を実行しない。SLOTH は遅延後に backend 実行を続けるが、その操作の fault 枠を消費する。`on_result` は backend 実行後に評価する。
+`before_execute` の failure injection が発火した場合は backend を実行しない。SLOTH は遅延後に backend 実行を続けるが、その操作の fault 枠を消費する。`on_result` は backend 実行後に評価する。STASH はエラーモードと行欠落モードが別個の評価候補（order 6・7）だが、TAIL_CHASE は単一の評価候補（order 9）であり、モードは適用時の効果と分類のみを分ける。
+
+`category` は侵される対象を表し、`failure_injection`、`temporal`、`shape`、
+`value`、`state` の5値に閉じる。`severity` は観測形態を表し、`error`、
+`silent_corruption`、`delay` の3値に閉じる。新しい障害名は「犬の行動 ×
+1語で結果形状が想像できる」ものとし、追加時には上表と実装の一次対応表へ
+`category`、`severity`、rowcount可視性を同時に登録しなければならない。
 
 `max_intervention_rows`（既定 10,000）は materialize 済み結果に `on_result` fault を適用する行数上限であり、取得件数または保持メモリの上限ではない。超過結果を切り詰めてはならない。`on_max_rows="skip"`（既定）では結果を無改変で返し、`on_max_rows="error"` では `limit_exceeded` を記録した後に非 retryable な `DollyLimitError` を送出する。後者も backend 実行および全行 materialize の後に発生する「実行済みなのに例外」の意味論を持つ。
 
@@ -87,6 +97,11 @@ wall-clock、OS 乱数、Python の組み込み `hash()` を決定へ使って�
 | `decision_evaluated` | `phase`, `template_fingerprint`, `parameter_fingerprint`, `occurrence`, `decision_key`, `outcome`, `details` |
 
 `fault_injected` と `treasure_returned` は `schema_version` を除いてv1と同じ必須フィールド集合を持つ。未定義の拡張フィールド、診断用 timestamp、任意の `mood` は replay 比較の対象外とする。writer は単一プロセス・単一インスタンス契約である。reader はv1とv2の混在を受理し、未知の schema version、不正JSON、不正UTF-8、必須フィールド不足の行を警告付きでスキップする。
+
+`fault_injected` は任意フィールドとして `category` と `severity` を持つ。
+両フィールドは必須フィールド集合および replay 比較には含めず、
+`schema_version` は2のままとする。`treasure_returned`、`mood_changed`、
+`limit_exceeded`、`decision_evaluated` には両フィールドを記録しない。
 
 ### warning outcome 語彙
 
@@ -118,7 +133,11 @@ escape hatchの値はnative methodの**呼び出し回数**であり、backend�
 
 ### DuckDB 表面
 
-DuckDB の公開表面は従来どおりである。`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を提供する。`with conn:` は終了時に接続を close する。`cursor()` と `sql()` は宣言した介入表面外であり、既定では従来どおり誘導付きの `AttributeError` で fail-closed とする。
+`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を提供する。`description` は、障害適用後の列名と DuckDB ネイティブの第2スロットの型情報から `(name, type, None, None, None, None, None)` を再構成する。型情報は正規化せず、TANGLED_LEASH で列名が入れ替わっても値を記述する列位置に留める。
+
+`cursor()` はネイティブのクローン接続を同型の `DuckDBProxy` で包んで返し、クローンの `cursor()` も再帰的に同様に包む。親子は介入コアを共有するため、decision・occurrence・イベント・stats・house・論理時計は全クローン横断で合算される。一方、SQL の実行先、トランザクション文脈、`close()`／`__exit__` の対象は各ネイティブ接続に属する。親子・クローン間のトランザクション分離は DuckDB ネイティブと同型であり、DogDB は変更・管理・検出しない。クローンを閉じても共有介入コアには影響しない。`with conn:` は終了時にその接続を close する。
+
+遅延評価 relation を返す `sql()`／`query`／`table` は宣言した介入表面外であり、既定では誘導付きの `AttributeError` で fail-closed とする。
 
 ### 明示的不忠実
 

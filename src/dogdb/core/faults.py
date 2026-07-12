@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any, Callable
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Callable, NoReturn
 
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.errors import (
@@ -31,24 +32,53 @@ if TYPE_CHECKING:
     from dogdb.core.stale_cache import StaleEntry, StaleReadCache
 
 
-KNOWN_FAULTS = frozenset(
+@dataclass(frozen=True, slots=True)
+class FaultTaxonomy:
+    category: str
+    severity: str
+    rowcount_visible: bool = False
+
+
+FAULT_TAXONOMY: Mapping[tuple[str, str | None], FaultTaxonomy] = MappingProxyType(
     {
-        "BARK",
-        "GUARD_BOWL",
-        "IGNORE",
-        "SLOTH",
-        "NO_DROP",
-        "STASH",
-        "FALSE_EMPTY",
-        "TAIL_CHASE",
-        "PAGE_HOLE",
-        "ECHO",
-        "SHUFFLE",
-        "TANGLED_LEASH",
-        "CHEW",
-        "WRONG_COUNT",
-        "OLD_BONE",
+        ("BARK", None): FaultTaxonomy("failure_injection", "error"),
+        ("GUARD_BOWL", None): FaultTaxonomy("failure_injection", "error"),
+        ("IGNORE", None): FaultTaxonomy("failure_injection", "error"),
+        ("SLOTH", None): FaultTaxonomy("temporal", "delay"),
+        ("NO_DROP", None): FaultTaxonomy("failure_injection", "error"),
+        ("STASH", "error"): FaultTaxonomy("shape", "error"),
+        ("STASH", "missing"): FaultTaxonomy("shape", "silent_corruption"),
+        ("FALSE_EMPTY", None): FaultTaxonomy(
+            "shape", "silent_corruption", rowcount_visible=True
+        ),
+        ("TAIL_CHASE", "error"): FaultTaxonomy(
+            "shape", "error", rowcount_visible=True
+        ),
+        ("TAIL_CHASE", "silent"): FaultTaxonomy(
+            "shape", "silent_corruption", rowcount_visible=True
+        ),
+        ("PAGE_HOLE", None): FaultTaxonomy(
+            "shape", "silent_corruption", rowcount_visible=True
+        ),
+        ("ECHO", None): FaultTaxonomy(
+            "shape", "silent_corruption", rowcount_visible=True
+        ),
+        ("SHUFFLE", None): FaultTaxonomy("shape", "silent_corruption"),
+        ("TANGLED_LEASH", None): FaultTaxonomy("value", "silent_corruption"),
+        ("CHEW", None): FaultTaxonomy("value", "silent_corruption"),
+        ("WRONG_COUNT", None): FaultTaxonomy(
+            "value", "silent_corruption", rowcount_visible=True
+        ),
+        ("OLD_BONE", None): FaultTaxonomy("state", "silent_corruption"),
     }
+)
+
+KNOWN_FAULTS = frozenset(fault for fault, _mode in FAULT_TAXONOMY)
+
+ROWCOUNT_VISIBLE_FAULTS = frozenset(
+    fault
+    for (fault, _mode), taxonomy in FAULT_TAXONOMY.items()
+    if taxonomy.rowcount_visible
 )
 
 BEFORE_EXECUTE_PRIORITY = ("BARK", "GUARD_BOWL", "IGNORE", "SLOTH")
@@ -175,6 +205,14 @@ class FaultEngine:
         self.stale_cache = stale_cache
         self.intervention_callback = intervention_callback
 
+    def _taxonomy(self, fault: str) -> FaultTaxonomy:
+        mode = None
+        if fault == "STASH":
+            mode = self.policy.stash_mode
+        elif fault == "TAIL_CHASE":
+            mode = self.policy.tail_chase_mode
+        return FAULT_TAXONOMY[(fault, mode)]
+
     def _fires(self, decision: Decision, fault: str) -> bool:
         fault_name = fault.removesuffix("_ERROR")
         probability = self.policy.probability(fault_name)
@@ -225,6 +263,7 @@ class FaultEngine:
         outcome: str,
         details: dict[str, object],
     ) -> Event:
+        taxonomy = self._taxonomy(fault)
         next_seq = self.events.next_seq()
         tag = f"event:{next_seq}:{fault}"
         event_id = self.decisions.deterministic_id(decision.decision_key, tag)
@@ -239,10 +278,35 @@ class FaultEngine:
             decision_key=decision.decision_key,
             outcome=outcome,
             details=details,
+            category=taxonomy.category,
+            severity=taxonomy.severity,
         )
         if self.intervention_callback is not None:
             self.intervention_callback(decision.template_fingerprint)
         return event
+
+    def _raise_from_event(
+        self,
+        error_type: type[DogDBError],
+        message: str,
+        event: Event,
+        *,
+        retryable: bool,
+        **extra: Any,
+    ) -> NoReturn:
+        """Raise an injection error whose machine-readable attributes mirror the event."""
+        assert event.phase is not None and event.outcome is not None
+        raise error_type(
+            message,
+            event_id=event.event_id,
+            fault=event.fault,
+            phase=event.phase,
+            retryable=retryable,
+            outcome=event.outcome,
+            category=event.category,
+            severity=event.severity,
+            **extra,
+        )
 
     def before_execute(self, decision: Decision) -> bool:
         selected = self.select_candidate(
@@ -288,14 +352,7 @@ class FaultEngine:
         event = self._event(
             decision, fault=fault, outcome="not_executed", details={}
         )
-        raise error_type(
-            message,
-            event_id=event.event_id,
-            fault=fault,
-            phase=decision.phase,
-            retryable=True,
-            outcome="not_executed",
-        )
+        self._raise_from_event(error_type, message, event, retryable=True)
 
     def on_result(
         self,
@@ -308,14 +365,12 @@ class FaultEngine:
         if len(result.rows) > self.max_intervention_rows:
             event = self._limit_exceeded(decision, observed=len(result.rows))
             if self.policy.on_max_rows == "error":
-                raise DollyLimitError(
+                self._raise_from_event(
+                    DollyLimitError,
                     "Dolly cannot intervene in this materialized result; "
                     "increase max_intervention_rows to allow it.",
-                    event_id=event.event_id,
-                    fault=None,
-                    phase=decision.phase,
+                    event,
                     retryable=False,
-                    outcome="error",
                 )
             return result
 
@@ -328,13 +383,11 @@ class FaultEngine:
                 outcome="response_lost",
                 details={},
             )
-            raise DollyNoDropError(
+            self._raise_from_event(
+                DollyNoDropError,
                 "Dolly fetched the result but would not drop it.",
-                event_id=event.event_id,
-                fault="NO_DROP",
-                phase=decision.phase,
+                event,
                 retryable=True,
-                outcome="response_lost",
             )
 
         sticky = self.house.active_for(decision.template_fingerprint)
@@ -343,7 +396,7 @@ class FaultEngine:
             rows = [row for index, row in enumerate(result.rows) if index not in hidden]
             if self.intervention_callback is not None:
                 self.intervention_callback(decision.template_fingerprint)
-            return LogicalResult(result.columns, rows, len(rows))
+            return replace(result, rows=rows, rowcount=len(rows))
 
         candidates: list[str] = []
         chew_choice = (
@@ -480,16 +533,14 @@ class FaultEngine:
             details={"row_indices": [row_index], "treasure_id": treasure_id},
         )
         if raises:
-            raise DollyStashedError(
+            self._raise_from_event(
+                DollyStashedError,
                 f"Dolly took row #{row_index} to her house.",
-                event_id=event.event_id,
-                fault="STASH",
-                phase=decision.phase,
+                event,
                 retryable=True,
-                outcome="read_partial",
             )
         rows = result.rows[:row_index] + result.rows[row_index + 1 :]
-        return LogicalResult(result.columns, rows, len(rows))
+        return replace(result, rows=rows, rowcount=len(rows))
 
     def _shuffle(self, decision: Decision, result: LogicalResult) -> LogicalResult:
         rows = list(result.rows)
@@ -503,7 +554,7 @@ class FaultEngine:
         if rows == result.rows:
             rows[0], rows[1] = rows[1], rows[0]
         self._event(decision, fault="SHUFFLE", outcome="rows_reordered", details={})
-        return LogicalResult(result.columns, rows, len(rows))
+        return replace(result, rows=rows, rowcount=len(rows))
 
     def _derived_index(self, decision: Decision, tag: str, size: int) -> int:
         digest = self.decisions.derive(decision.decision_key, tag)
@@ -519,7 +570,7 @@ class FaultEngine:
             outcome="rows_duplicated",
             details={"row_index": row_index},
         )
-        return LogicalResult(list(result.columns), rows, len(rows))
+        return replace(result, rows=rows, rowcount=len(rows))
 
     def _tail_chase(
         self, decision: Decision, result: LogicalResult
@@ -539,17 +590,15 @@ class FaultEngine:
             details={"delivered_rows": delivered, "truncated_rows": truncated},
         )
         if self.policy.tail_chase_mode == "error":
-            raise DollyTailChaseError(
+            self._raise_from_event(
+                DollyTailChaseError,
                 f"Dolly stopped the chase after delivering {delivered} rows.",
-                event_id=event.event_id,
-                fault="TAIL_CHASE",
-                phase=decision.phase,
+                event,
                 retryable=True,
-                outcome="read_partial",
                 delivered_rows=delivered,
             )
         rows = result.rows[:delivered]
-        return LogicalResult(list(result.columns), rows, len(rows))
+        return replace(result, rows=rows, rowcount=len(rows))
 
     def _false_empty(
         self, decision: Decision, result: LogicalResult
@@ -560,7 +609,7 @@ class FaultEngine:
             outcome="empty_result",
             details={},
         )
-        return LogicalResult(list(result.columns), [], 0)
+        return replace(result, rows=[], rowcount=0)
 
     def _page_hole(
         self, decision: Decision, result: LogicalResult
@@ -575,7 +624,7 @@ class FaultEngine:
             outcome="page_hole",
             details={"rows_removed": removed},
         )
-        return LogicalResult(list(result.columns), rows, len(rows))
+        return replace(result, rows=rows, rowcount=len(rows))
 
     def _tangled_leash(
         self, decision: Decision, result: LogicalResult
@@ -591,7 +640,7 @@ class FaultEngine:
             outcome="column_labels_swapped",
             details={"column_indices": [left, left + 1]},
         )
-        return LogicalResult(columns, list(result.rows), result.rowcount)
+        return replace(result, columns=columns)
 
     def _chew_choice(
         self, decision: Decision, result: LogicalResult
@@ -637,7 +686,7 @@ class FaultEngine:
                 "profile": profile,
             },
         )
-        return LogicalResult(list(result.columns), rows, result.rowcount)
+        return replace(result, rows=rows)
 
     def _wrong_count(
         self, decision: Decision, result: LogicalResult
@@ -658,7 +707,7 @@ class FaultEngine:
                 "reported_rowcount": reported,
             },
         )
-        return LogicalResult(list(result.columns), list(result.rows), reported)
+        return replace(result, rowcount=reported)
 
     def _old_bone(
         self, decision: Decision, history: list[StaleEntry]
@@ -676,6 +725,7 @@ class FaultEngine:
             list(selected.result.columns),
             [tuple(row) for row in selected.result.rows],
             selected.result.rowcount,
+            selected.result.column_types,
         )
 
 

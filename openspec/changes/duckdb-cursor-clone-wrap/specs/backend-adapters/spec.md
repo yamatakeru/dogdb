@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: アダプタ契約と論理結果セット
-バックエンドアダプタは `execute(sql, params) -> LogicalResult`、`close()`、`in_transaction` プロパティを実装しなければならない（MUST）。`LogicalResult` は列名リスト、タプルの行リスト、rowcount、および省略可能な列型情報（バックエンドが `description` の第2スロットで返した値の列。型情報を返さないバックエンドでは None）を持つバックエンド中立の構造でなければならない（SHALL）。core は列型情報を不透明な値として扱い、その内容や表現形式に依存してはならない（MUST NOT）。DogDB core（決定エンジン、障害変換、house、イベントログ）はバックエンドモジュールをimportしてはならない（MUST NOT）。
+バックエンドアダプタは `execute(sql, params) -> LogicalResult`、`executemany(sql, params) -> LogicalResult`、`close()`、`in_transaction` プロパティを実装しなければならない（MUST）。`LogicalResult` は列名リスト、タプルの行リスト、rowcount、および省略可能な列型情報（バックエンドが `description` の第2スロットで返した値の列。型情報を返さないバックエンドでは None）を持つバックエンド中立の構造でなければならない（SHALL）。core は列型情報を不透明な値として扱い、その内容や表現形式に依存してはならない（MUST NOT）。DogDB core（決定エンジン、障害変換、house、イベントログ）はバックエンドモジュールをimportしてはならない（MUST NOT）。
 
 #### Scenario: coreはバックエンドを知らない
 - **WHEN** coreパッケージの依存関係を静的に検査する

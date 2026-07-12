@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import warnings
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Event:
     schema_version: int
     event_id: str
@@ -24,6 +24,12 @@ class Event:
     decision_key: str | None = None
     outcome: str | None = None
     details: dict[str, Any] | None = None
+    # The taxonomy attributes stay outside the dataclass field set (the
+    # ClassVar annotation excludes them; _attach_taxonomy stores per-instance
+    # values) so equality and asdict-based replay signatures keep comparing
+    # only the established fields.
+    category: ClassVar[str | None] = None
+    severity: ClassVar[str | None] = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> Event:
@@ -56,13 +62,22 @@ class Event:
         details = value.get("details")
         if details is not None and not isinstance(details, dict):
             raise ValueError("details must be an object")
-        return cls(
+        event = cls(
             **{
-                field: value[field]
-                for field in cls.__dataclass_fields__
-                if field in value
+                spec.name: value[spec.name]
+                for spec in fields(cls)
+                if spec.name in value
             }
         )
+        return _attach_taxonomy(event, value.get("category"), value.get("severity"))
+
+
+def _attach_taxonomy(
+    event: Event, category: str | None, severity: str | None
+) -> Event:
+    object.__setattr__(event, "category", category)
+    object.__setattr__(event, "severity", severity)
+    return event
 
 
 _CORE_FIELDS = {"schema_version", "event_id", "session_id", "seq", "event_type"}
@@ -76,6 +91,8 @@ _STRING_FIELDS = {
     "parameter_fingerprint",
     "decision_key",
     "outcome",
+    "category",
+    "severity",
 }
 _V1_FIELDS = _CORE_FIELDS | {
     "fault",
@@ -127,13 +144,19 @@ class EventLog:
             default=0,
         )
 
-    def append(self, **fields: Any) -> Event:
+    def append(self, **values: Any) -> Event:
         self._seq += 1
-        event = Event(
-            schema_version=2,
-            session_id=self.session_id,
-            seq=self._seq,
-            **fields,
+        category = values.pop("category", None)
+        severity = values.pop("severity", None)
+        event = _attach_taxonomy(
+            Event(
+                schema_version=2,
+                session_id=self.session_id,
+                seq=self._seq,
+                **values,
+            ),
+            category,
+            severity,
         )
         self._events.append(event)
         if self.path is not None:
@@ -142,6 +165,10 @@ class EventLog:
                 payload = {
                     key: value for key, value in asdict(event).items() if value is not None
                 }
+                if event.category is not None:
+                    payload["category"] = event.category
+                if event.severity is not None:
+                    payload["severity"] = event.severity
                 stream.write(json.dumps(payload, separators=(",", ":")) + "\n")
         return event
 

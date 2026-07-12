@@ -264,7 +264,11 @@ def test_backends_produce_matching_old_bone_events_and_stats():
 
 
 class _TypedCursor:
-    description = (("tz",), ("amount",), ("payload",))
+    description = (
+        ("tz", None, None, None, None, None, None),
+        ("amount", None, None, None, None, None, None),
+        ("payload", None, None, None, None, None, None),
+    )
     rowcount = -1
 
     def fetchall(self):

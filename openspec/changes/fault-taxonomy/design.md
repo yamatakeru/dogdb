@@ -78,7 +78,7 @@
 
 ### D6: イベントは `fault_injected` のみに任意フィールドとして付与する
 
-`Event` dataclass に `category` / `severity` を任意フィールド（デフォルト None）として宣言し、`_STRING_FIELDS` に追加する。必須フィールド表（`_V2_FIELDS`）には**追加しない** — 「`fault_injected` の必須集合は v1 と同一」（MUST）と「表にないフィールドは replay 比較対象外」（MUST NOT）の2契約により、schema_version=2 据え置き・保存済みログとの replay 互換が保たれる。`treasure_returned`（STASH の後続イベント）・`decision_evaluated`・`limit_exceeded` には付与しない: 注入の発生を表すのは `fault_injected` だけであり、他種別への付与は「fault=STASH の再利用」のような既存の曖昧さを増やす。
+`Event` に `category` / `severity` を任意の属性（デフォルト None）として追加し、`_STRING_FIELDS` に追加する。ただし dataclass のフィールド集合には**含めない**: `Event` の等価比較と asdict ベースの署名は replay 比較の実体であり、フィールドに昇格させると分類フィールドを持たない既存ログとの比較が壊れる。実現は ClassVar 注釈（dataclass のフィールド収集から除外され、生成 `__init__`・`__eq__`・`asdict` に入らない）＋構築後に `object.__setattr__` でインスタンス値を付与する形とし、「replay 比較対象外」（MUST NOT）を等価性のレベルで構造的に担保する。ワイヤ形式（JSONL）には None でない場合のみ書き出す。必須フィールド表（`_V2_FIELDS`）には**追加しない** — 「`fault_injected` の必須集合は v1 と同一」（MUST）と「表にないフィールドは replay 比較対象外」（MUST NOT）の2契約により、schema_version=2 据え置き・保存済みログとの replay 互換が保たれる。`treasure_returned`（STASH の後続イベント）・`decision_evaluated`・`limit_exceeded` には付与しない: 注入の発生を表すのは `fault_injected` だけであり、他種別への付与は「fault=STASH の再利用」のような既存の曖昧さを増やす。
 
 ### D7: decision key 不参加は「導出入力に含めない」ことで担保する
 

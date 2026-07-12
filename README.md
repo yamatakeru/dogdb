@@ -45,7 +45,7 @@ DogDB は介入コアを共有しますが、接続表面は各ネイティブ�
 
 ### DuckDB
 
-従来の表面を維持します。`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を利用できます。`with conn:` は終了時に接続をcloseします。`cursor()` と `sql()` は既定で従来どおりfail-closedとなり、`execute()` または `allow_native_passthrough=True` を案内する `AttributeError` を送出します。
+`execute()` は接続自身を返し、接続レベルの `fetchall`／`fetchone`／`fetchmany`／`description`／`rowcount` を利用できます。`description` は DuckDB ネイティブの列名と型情報を無変換で透過します。`cursor()` は DuckDB ネイティブのクローン接続を新しい `DuckDBProxy` で包んで返し、クローンの `cursor()` も同様です。親子は decision・イベント・stats・house・論理時計を共有し、セッションは全クローン横断の `execute()` 呼び出し順として扱われます。一方、各クローンのトランザクション分離と close の対象は DuckDB ネイティブと同じであり、DogDB は変更しません。`with conn:` は終了時にその接続をcloseします。遅延評価 relation を返す `sql()`／`query`／`table` は引き続き fail-closed で、`execute()` または `allow_native_passthrough=True` を案内する `AttributeError` を送出します。
 
 ### 明示的不忠実
 
@@ -89,7 +89,16 @@ rowcount = cursor.rowcount
 | 手動 RETURN | house の隠し状態を解除する | replica の追随、可視性回復 |
 | 自動 RETURN | 論理操作数の経過後に宝物を返す | eventual consistency |
 
-注入例外は `DogDBError` の派生型で、`event_id`、`fault`、`phase`、`retryable`、`outcome` を持ちます。バックエンド固有の実エラーはラップしません。
+注入例外は `DogDBError` の派生型で、`event_id`、`fault`、`phase`、`retryable`、`outcome` に加え、読み取り専用の `category` と `severity` を持ちます。バックエンド固有の実エラーはラップしません。イベントログも同じ分類属性を持つため、たとえばサイレント破損だけをテストで抽出できます。
+
+```python
+silent_corruptions = [
+    event
+    for event in conn.dolly.log()
+    if event.severity == "silent_corruption"
+]
+assert all(event.category in {"shape", "value", "state"} for event in silent_corruptions)
+```
 
 ### opt-in状態機能
 

@@ -13,6 +13,8 @@ class DogDBError(Exception):
         phase: str,
         retryable: bool,
         outcome: str,
+        category: str | None,
+        severity: str | None,
     ) -> None:
         super().__init__(message)
         self.event_id = event_id
@@ -20,6 +22,16 @@ class DogDBError(Exception):
         self.phase = phase
         self.retryable = retryable
         self.outcome = outcome
+        self._category = category
+        self._severity = severity
+
+    @property
+    def category(self) -> str | None:
+        return self._category
+
+    @property
+    def severity(self) -> str | None:
+        return self._severity
 
 
 class DollyStashedError(DogDBError):
@@ -56,6 +68,8 @@ class DollyTailChaseError(DogDBError):
         phase: str,
         retryable: bool,
         outcome: str,
+        category: str | None,
+        severity: str | None,
         delivered_rows: int,
     ) -> None:
         super().__init__(
@@ -65,5 +79,7 @@ class DollyTailChaseError(DogDBError):
             phase=phase,
             retryable=retryable,
             outcome=outcome,
+            category=category,
+            severity=severity,
         )
         self.delivered_rows = delivered_rows

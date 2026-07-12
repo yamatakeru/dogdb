@@ -22,6 +22,12 @@ class SQLiteAdapter:
         cursor = self.connection.execute(sql, params) if params else self.connection.execute(sql)
         return materialize(cursor)
 
+    def executemany(
+        self, sql: str, params: Sequence[Sequence[Any]]
+    ) -> LogicalResult:
+        cursor = self.connection.executemany(sql, params)
+        return LogicalResult([], [], getattr(cursor, "rowcount", -1))
+
     def close(self) -> None:
         self.connection.close()
 
