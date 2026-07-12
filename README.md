@@ -102,7 +102,9 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
 - SQL 分類は意図的に保守的です。CTE、複文、PRAGMA、分類不能文、名前付きパラメータ、`executemany` へ直接faultは注入しません。ただしmood／自動返却の論理時計は全`execute`／`executemany`で進みます。
-- 結果を `execute` 時に全件 materialize します。既定上限は 10,000 行、house は 1,000 件で、小規模なテストデータを前提にします。
+- 結果を `execute` 時に全件 materialize します。`max_intervention_rows`（既定 10,000）は materialize 済み結果へ fault を適用する行数上限であり、取得件数や保持メモリの上限ではありません。超過時も既定では全行を無改変で返すため、メモリ保護にはなりません。house は 1,000 件を上限とし、小規模なテストデータを前提にします。
+- 大きすぎる結果を明示的にテスト失敗にするには `on_max_rows="error"` を指定します。`limit_exceeded` を記録してから非 retryable な `DollyLimitError` を送出しますが、この判定はバックエンド実行と全行 materialize の後です。必要なら `max_intervention_rows` を調整してください。
+- occurrence カウンタと fingerprint 単位の統計は、決定性を守るためセッション中に退避・再初期化せず単調増加します。長時間稼働プロセスへ常設せず、テストケースまたは小規模テストスイート単位で接続をラップし直してください。
 - JSONL は単一 writer 契約です。複数プロセスから同じファイルへ追記しないでください。
 - 本番向けの信頼性機構ではなく、テスト専用のカオスツールです。
 

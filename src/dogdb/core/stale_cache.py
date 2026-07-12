@@ -23,12 +23,12 @@ class StaleReadCache:
         self,
         *,
         include_params: bool,
-        max_rows: int,
+        max_intervention_rows: int,
         per_fingerprint: int = 4,
         total_limit: int = 64,
     ) -> None:
         self.include_params = include_params
-        self.max_rows = max_rows
+        self.max_intervention_rows = max_intervention_rows
         self.per_fingerprint = per_fingerprint
         self.total_limit = total_limit
         self._entries: OrderedDict[tuple[CacheKey, int], StaleEntry] = OrderedDict()
@@ -46,7 +46,7 @@ class StaleReadCache:
         return [self._entries[(key, occurrence)] for occurrence in occurrences]
 
     def add(self, decision: Decision, result: LogicalResult) -> bool:
-        if len(result.rows) > self.max_rows:
+        if len(result.rows) > self.max_intervention_rows:
             return False
         key = self.key_for(decision)
         while len(self._by_key[key]) >= self.per_fingerprint:

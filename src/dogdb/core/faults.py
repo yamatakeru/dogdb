@@ -14,6 +14,7 @@ from dogdb.core.errors import (
     DollyBarkError,
     DollyBusyError,
     DollyIgnoredError,
+    DollyLimitError,
     DollyNoDropError,
     DollyStashedError,
     DollyTailChaseError,
@@ -81,6 +82,7 @@ class FaultPolicy:
     probabilities: dict[str, float] = field(default_factory=dict)
     stash_mode: str = "missing"
     tail_chase_mode: str = "silent"
+    on_max_rows: str = "skip"
     chew_profiles: tuple[str, ...] = CHEW_PROFILES
     wrong_count_max_delta: int = 1
     sloth_max_delay_ms: int = 1_000
@@ -100,6 +102,8 @@ class FaultPolicy:
             raise ValueError("stash_mode must be 'missing' or 'error'")
         if self.tail_chase_mode not in {"silent", "error"}:
             raise ValueError("tail_chase_mode must be 'silent' or 'error'")
+        if self.on_max_rows not in {"skip", "error"}:
+            raise ValueError("on_max_rows must be 'skip' or 'error'")
         unknown_profiles = set(self.chew_profiles) - set(CHEW_PROFILES)
         if unknown_profiles:
             raise ValueError(
@@ -151,7 +155,7 @@ class FaultEngine:
         events: EventLog,
         house: HouseLedger,
         policy: FaultPolicy,
-        max_rows: int,
+        max_intervention_rows: int,
         debug: bool = False,
         clock: Callable[[float], None] | None = None,
         mood: MoodEngine | None = None,
@@ -163,7 +167,7 @@ class FaultEngine:
         self.events = events
         self.house = house
         self.policy = policy
-        self.max_rows = max_rows
+        self.max_intervention_rows = max_intervention_rows
         self.debug = debug
         self.clock = clock
         self.mood = mood
@@ -299,8 +303,18 @@ class FaultEngine:
     ) -> LogicalResult:
         if classification.kind is not SQLKind.SELECT:
             return result
-        if len(result.rows) > self.max_rows:
-            self._limit_exceeded(decision, observed=len(result.rows))
+        if len(result.rows) > self.max_intervention_rows:
+            event = self._limit_exceeded(decision, observed=len(result.rows))
+            if self.policy.on_max_rows == "error":
+                raise DollyLimitError(
+                    "Dolly cannot intervene in this materialized result; "
+                    "increase max_intervention_rows to allow it.",
+                    event_id=event.event_id,
+                    fault=None,
+                    phase=decision.phase,
+                    retryable=False,
+                    outcome="error",
+                )
             return result
 
         if self.select_candidate(
@@ -422,10 +436,12 @@ class FaultEngine:
             parameter_fingerprint=decision.parameter_fingerprint,
             occurrence=decision.occurrence,
             decision_key=decision.decision_key,
-            outcome="fault_skipped",
+            outcome=(
+                "error" if self.policy.on_max_rows == "error" else "fault_skipped"
+            ),
             details={
-                "limit": "max_rows",
-                "configured": self.max_rows,
+                "limit": "max_intervention_rows",
+                "configured": self.max_intervention_rows,
                 "observed": observed,
             },
         )
