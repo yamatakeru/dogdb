@@ -27,6 +27,7 @@ rules:
     - 実装、検証、ドキュメント更新を分けてチェック可能な粒度にする。
     - 検証タスクには実行するコマンドまたは確認対象を含める。
     - tasksでは実装作業とchange配下の更新に限定し、openspec/specs/配下のmain spec更新はsync/archiveフェーズに委ねる
+    - GitHub issueと紐づくchangeは、issueへの完了コメント・クローズ・統括issueの更新をタスクに含める。
 
   specs:
     - 日本語で記述する。

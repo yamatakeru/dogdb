@@ -14,6 +14,8 @@ Use Fable for planning, coordination, deep analysis, and insight generation. Del
 
 For comparison-shaped tasks, follow the Fusion panel policy in AGENTS.md; implementation still goes to Codex. A single Opus pass is the fallback only for the narrow seat above—voice, nuance, or a latency-bound inline read—since for any other second opinion a cheap panel wins on cost, quota, and (on breadth-bound work) coverage.
 
+In the AGENTS.md parallel-implementation (worktree) strategy, the "実装ワーカー" is Codex under this harness.
+
 ## Working with subagents
 
 Delegation is the default for breadth: sweeping, triaging, and filtering many sources is subagent work. Depth is the narrow exception: when an analysis or decision rests on a small number of primary sources, Fable reads those few directly instead of reasoning over secondhand summaries. Keep that set small and curated—Fable's own context is the scarce resource, reserved for cases where a summary's omissions would change the conclusion.
