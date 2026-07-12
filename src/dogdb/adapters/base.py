@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Protocol
 
 from dogdb.core.models import LogicalResult
+
+
+class Adapter(Protocol):
+    """Backend contract consumed by the connection proxy."""
+
+    sql_capable_attrs: frozenset[str] = frozenset()
+
+    def execute(
+        self, sql: str, params: Sequence[Any] | None = None
+    ) -> LogicalResult: ...
+
+    def close(self) -> None: ...
+
+    @property
+    def in_transaction(self) -> bool: ...
 
 
 def materialize(cursor: Any) -> LogicalResult:

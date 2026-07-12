@@ -100,6 +100,7 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 ## 限界と安全上の前提
 
+- 接続proxyが対応する入口は`execute`、`executemany`、`fetchall`、`fetchone`、`fetchmany`、`description`、`rowcount`、`in_transaction`、`commit`、`rollback`、`close`、`dolly`、およびコンテキストマネージャです。それ以外の未知属性は、障害注入を沈黙のまま迂回させないため既定で拒否します。生接続の機能が必要な場合は`allow_native_passthrough=True`を`wrap()`へ指定できますが、その転送経路は障害注入・イベント記録・論理時計・occurrence更新の対象外です。
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
 - SQL 分類は意図的に保守的です。CTE、複文、PRAGMA、分類不能文、名前付きパラメータ、`executemany` へ直接faultは注入しません。ただしmood／自動返却の論理時計は全`execute`／`executemany`で進みます。
 - 結果を `execute` 時に全件 materialize します。既定上限は 10,000 行、house は 1,000 件で、小規模なテストデータを前提にします。

@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
 
+from dogdb.adapters.base import Adapter
 from dogdb.adapters.duckdb import DuckDBAdapter
 from dogdb.adapters.sqlite import SQLiteAdapter
 from dogdb.core.auto_return import AutoReturnScheduler, parse_auto_return_config
@@ -78,8 +79,9 @@ class DBAPIProxy:
     def __init__(
         self,
         connection: Any,
-        adapter: DuckDBAdapter | SQLiteAdapter,
+        adapter: Adapter,
         *,
+        allow_native_passthrough: bool,
         seed: object,
         session_id: str,
         include_params: bool,
@@ -98,6 +100,7 @@ class DBAPIProxy:
     ) -> None:
         self._connection = connection
         self._adapter = adapter
+        self._allow_native_passthrough = allow_native_passthrough
         self._decisions = DecisionEngine(
             seed=seed, session_id=session_id, include_params=include_params
         )
@@ -261,10 +264,32 @@ class DBAPIProxy:
         self.close()
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._connection, name)
+        if self._allow_native_passthrough:
+            native_attr = getattr(self._connection, name)
+            if not callable(native_attr):
+                return native_attr
+            bucket = name if name in self._adapter.sql_capable_attrs else "other"
+
+            def call_native(*args: Any, **kwargs: Any) -> Any:
+                self._stats.record_escape_hatch(bucket)
+                return native_attr(*args, **kwargs)
+
+            return call_native
+        if name in self._adapter.sql_capable_attrs:
+            raise AttributeError(
+                f"DogDB cannot inject faults through native connection attribute {name!r}. "
+                "Use execute() or pass allow_native_passthrough=True to wrap()."
+            )
+        raise AttributeError(
+            f"DBAPIProxy has no supported attribute {name!r}. Supported public API: "
+            "execute(), executemany(), fetchall(), fetchone(), fetchmany(), description, "
+            "rowcount, in_transaction, commit(), rollback(), close(), dolly, and context "
+            "management. Pass allow_native_passthrough=True to wrap() for intentional "
+            "native access."
+        )
 
 
-def _adapter_for(connection: Any) -> DuckDBAdapter | SQLiteAdapter:
+def _adapter_for(connection: Any) -> Adapter:
     module = type(connection).__module__
     if module.startswith("sqlite3"):
         return SQLiteAdapter(connection)
@@ -279,6 +304,7 @@ def wrap(
     seed: object,
     session_id: str | None = None,
     include_params: bool = False,
+    allow_native_passthrough: bool = False,
     fault_probabilities: Mapping[str, float] | None = None,
     faults: Mapping[str, float] | None = None,
     stash_mode: str = "missing",
@@ -332,10 +358,12 @@ def wrap(
         if probabilities.get("OLD_BONE", 0) > 0
         else None
     )
+    adapter = _adapter_for(connection)
     stats = StatsTracker()
     return DBAPIProxy(
         connection,
-        _adapter_for(connection),
+        adapter,
+        allow_native_passthrough=allow_native_passthrough,
         seed=seed,
         session_id=session_id,
         include_params=include_params,
