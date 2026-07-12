@@ -8,6 +8,8 @@
 
 parameter fingerprint の入力域は、JSONネイティブのscalar値と、厳密な型一致による `bytes`、`bytearray`、`datetime.date`、`datetime.time`、`datetime.datetime`、`Decimal`、`UUID` に閉じる。サブクラスや独自型を含む入力域外の位置パラメータ操作は、fingerprint、decision、event、occurrenceを生成せずバックエンドへ素通しする。素通し操作でもmood／自動返却の論理時計は1操作として進める。発生数は `dolly.stats()["passthrough"]["unsupported_parameter_type"]` に記録し、生パラメータ、型名、reprを統計へ含めてはならない。将来この操作を障害注入対象にする場合は、occurrenceとreplay系列が変わるため、`POLICY_VERSION` 更新の要否を判断しなければならない。
 
+occurrence カウンタおよび fingerprint 単位の統計はセッション中に退避または再初期化してはならず、単調増加する。occurrence の再利用は決定キーを変えるためである。セッションはテストケースまたは小規模テストスイート単位で作り直し、長時間稼働プロセスへ常設しない。
+
 決定キーから用途別の値を得る標準導出は次式とする。
 
 ```text
@@ -64,6 +66,8 @@ STASH / SHUFFLE / IGNORE は v1 の決定値とイベント列を維持するた
 
 `before_execute` の failure injection が発火した場合は backend を実行しない。SLOTH は遅延後に backend 実行を続けるが、その操作の fault 枠を消費する。`on_result` は backend 実行後に評価する。
 
+`max_intervention_rows`（既定 10,000）は materialize 済み結果に `on_result` fault を適用する行数上限であり、取得件数または保持メモリの上限ではない。超過結果を切り詰めてはならない。`on_max_rows="skip"`（既定）では結果を無改変で返し、`on_max_rows="error"` では `limit_exceeded` を記録した後に非 retryable な `DollyLimitError` を送出する。後者も backend 実行および全行 materialize の後に発生する「実行済みなのに例外」の意味論を持つ。
+
 ## イベント schema v2
 
 イベントは1イベント1行の UTF-8 JSONL とする。全イベントに次のコアフィールドを必須とする。
@@ -92,10 +96,11 @@ STASH / SHUFFLE / IGNORE は v1 の決定値とイベント列を維持するた
 
 | event_type | outcome | meaning |
 |---|---|---|
-| `limit_exceeded` | `fault_skipped` | 安全上限を超えたため結果を無改変で返し、fault 注入を見送った |
+| `limit_exceeded` | `fault_skipped` | 介入上限を超えたため結果を無改変で返し、fault 注入を見送った |
+| `limit_exceeded` | `error` | 介入上限を超えたイベントを記録後、`DollyLimitError` を送出した |
 | `decision_evaluated` | `not_injected` | debug 評価では候補を調べたが fault は適用されなかった |
 
-`limit_exceeded.details.limit` は現在 `max_rows`、`configured` は設定上限、`observed` は materialize された行数である。生SQL、生パラメータ、生行値をイベントへ含めてはならない。
+`limit_exceeded.details.limit` は現在 `max_intervention_rows`、`configured` は設定上限、`observed` は materialize された行数である。旧識別子は policy v3 以前に記録された履歴イベントにのみ出現する。生SQL、生パラメータ、生行値をイベントへ含めてはならない。
 
 ## native passthrough と escape hatch 統計
 

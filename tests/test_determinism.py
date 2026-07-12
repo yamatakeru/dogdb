@@ -103,6 +103,18 @@ def test_unsupported_parameter_passthrough_does_not_consume_occurrence():
     ]
 
 
+def test_occurrence_is_not_evicted_after_many_distinct_templates():
+    conn = dogdb.wrap(_database(), seed=42, faults={"SHUFFLE": 1})
+    first_sql = "select 0 union all select 1"
+
+    conn.execute(first_sql).fetchall()
+    for value in range(2, 10_002):
+        conn.execute(f"select {value}").fetchall()
+    conn.execute(first_sql).fetchall()
+
+    assert [event.occurrence for event in conn.dolly.log()] == [1, 2]
+
+
 def test_seed_separates_decision_keys():
     keys = []
     for seed in (42, 43):

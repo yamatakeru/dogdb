@@ -90,7 +90,7 @@ class DBAPIProxy:
         include_params: bool,
         policy: FaultPolicy,
         log_path: str | Path | None,
-        max_rows: int,
+        max_intervention_rows: int,
         house_limit: int,
         only_tables: frozenset[str] | None,
         exclude_tables: frozenset[str] | None,
@@ -114,7 +114,7 @@ class DBAPIProxy:
             self._events,
             self._house,
             policy,
-            max_rows,
+            max_intervention_rows,
             debug,
             clock,
             mood,
@@ -328,8 +328,8 @@ def wrap(
     mood: bool | Mapping[str, Any] | None = False,
     auto_return: bool | Mapping[str, Any] | Sequence[int] | None = False,
     log_path: str | Path | None = None,
-    event_log: str | Path | None = None,
-    max_rows: int = 10_000,
+    max_intervention_rows: int = 10_000,
+    on_max_rows: str = "skip",
     house_limit: int = 1_000,
     only_tables: Sequence[str] | None = None,
     exclude_tables: Sequence[str] | None = None,
@@ -362,7 +362,10 @@ def wrap(
         else None
     )
     stale_cache = (
-        StaleReadCache(include_params=include_params, max_rows=max_rows)
+        StaleReadCache(
+            include_params=include_params,
+            max_intervention_rows=max_intervention_rows,
+        )
         if probabilities.get("OLD_BONE", 0) > 0
         else None
     )
@@ -379,12 +382,13 @@ def wrap(
             probabilities=probabilities,
             stash_mode=stash_mode,
             tail_chase_mode=tail_chase_mode,
+            on_max_rows=on_max_rows,
             chew_profiles=tuple(chew_profiles),
             wrong_count_max_delta=wrong_count_max_delta,
             sloth_max_delay_ms=sloth_max_delay_ms,
         ),
-        log_path=log_path if log_path is not None else event_log,
-        max_rows=max_rows,
+        log_path=log_path,
+        max_intervention_rows=max_intervention_rows,
         house_limit=house_limit,
         only_tables=_normalize_tables(only_tables),
         exclude_tables=_normalize_tables(exclude_tables),
