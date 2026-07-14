@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import sqlite3
 
-import duckdb
 import pytest
+
+try:
+    import duckdb
+    HAS_DUCKDB = True
+except ImportError:
+    duckdb = None
+    HAS_DUCKDB = False
 
 import dogdb
 from dogdb.proxy import CursorProxy, DuckDBProxy, SQLiteProxy
@@ -20,6 +26,7 @@ def _populated() -> sqlite3.Connection:
     return raw
 
 
+@pytest.mark.skipif(not HAS_DUCKDB, reason="duckdb not installed")
 def test_wrap_selects_backend_faithful_proxy_class():
     sqlite_proxy = dogdb.wrap(sqlite3.connect(":memory:"), seed=1)
     duckdb_proxy = dogdb.wrap(duckdb.connect(":memory:"), seed=1)

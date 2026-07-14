@@ -9,7 +9,10 @@ description = "Deterministic SQL fault injection for tests"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
-dependencies = ["duckdb"]
+dependencies = ["sqlglot"]
+
+[project.optional-dependencies]
+duckdb = ["duckdb"]
 
 [dependency-groups]
 dev = ["pytest"]

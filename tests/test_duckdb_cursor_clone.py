@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import sqlite3
+import pytest
 from pathlib import Path
 from typing import Any
 
-import duckdb
+try:
+    import duckdb
+    HAS_DUCKDB = True
+except ImportError:
+    duckdb = None
+    HAS_DUCKDB = False
 
 import dogdb
 from dogdb.proxy import DuckDBProxy, SQLiteProxy
+
+pytestmark = pytest.mark.skipif(not HAS_DUCKDB, reason="duckdb not installed")
 
 
 def _event_signature(connection: DuckDBProxy) -> list[tuple[Any, ...]]:

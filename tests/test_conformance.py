@@ -6,15 +6,25 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-import duckdb
 import pytest
 
 import dogdb
-from dogdb.adapters import DuckDBAdapter, SQLiteAdapter
+from dogdb.adapters import SQLiteAdapter
+
+try:
+    import duckdb
+    from dogdb.adapters import DuckDBAdapter
+    HAS_DUCKDB = True
+except ImportError:
+    duckdb = None
+    DuckDBAdapter = None
+    HAS_DUCKDB = False
 
 
 def _backend(name: str):
     if name == "duckdb":
+        if not HAS_DUCKDB:
+            pytest.skip("duckdb not installed")
         return duckdb.connect(":memory:")
     return sqlite3.connect(":memory:")
 
@@ -49,6 +59,7 @@ def test_core_has_no_backend_imports():
     assert forbidden == []
 
 
+@pytest.mark.skipif(not HAS_DUCKDB, reason="duckdb not installed")
 def test_duckdb_adapter_normalizes_results():
     result = DuckDBAdapter(duckdb.connect(":memory:")).execute(
         "select 1 as x, 'a' as y"
@@ -291,7 +302,13 @@ class _TypedConnection:
         pass
 
 
-@pytest.mark.parametrize("adapter", [DuckDBAdapter, SQLiteAdapter])
+@pytest.mark.parametrize(
+    "adapter",
+    [
+        pytest.param(DuckDBAdapter, marks=pytest.mark.skipif(not HAS_DUCKDB, reason="duckdb not installed")),
+        SQLiteAdapter,
+    ],
+)
 def test_common_adapter_suite_preserves_timezone_decimal_and_blob(adapter):
     result = adapter(_TypedConnection()).execute("select typed values")
 
@@ -301,6 +318,7 @@ def test_common_adapter_suite_preserves_timezone_decimal_and_blob(adapter):
     assert result.rows[0][2] == b"\x00\xff"
 
 
+@pytest.mark.skipif(not HAS_DUCKDB, reason="duckdb not installed")
 def test_wrap_duckdb_and_plain_result_match_when_calm():
     conn = dogdb.wrap(duckdb.connect(":memory:"), seed=42)
     assert all(

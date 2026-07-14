@@ -4,7 +4,7 @@
 
 ## 決定関数と fingerprint
 
-`decision_key`、SQL template fingerprint、parameter fingerprint の定義は contract v1 を継承する。`POLICY_VERSION` は `dogdb-v3:normalize=trim+collapse-whitespace+lowercase` である。決定性の保証単位は、同一 seed、明示した同一 session ID、同一設定、およびセッション先頭からの同一の順序付き入力列である。部分 replay の一致は保証しない。
+`decision_key`、SQL template fingerprint、parameter fingerprint の定義は contract v1 を継承する。`POLICY_VERSION` は `dogdb-v4:normalize=trim+collapse-whitespace+lowercase-preserve-literals` である。決定性の保証単位は、同一 seed、明示した同一 session ID、同一設定、およびセッション先頭からの同一の順序付き入力列である。部分 replay の一致は保証しない。
 
 parameter fingerprint の入力域は、JSONネイティブのscalar値と、厳密な型一致による `bytes`、`bytearray`、`datetime.date`、`datetime.time`、`datetime.datetime`、`Decimal`、`UUID` に閉じる。サブクラスや独自型を含む入力域外の位置パラメータ操作は、fingerprint、decision、event、occurrenceを生成せずバックエンドへ素通しする。素通し操作でもmood／自動返却の論理時計は1操作として進める。発生数は `dolly.stats()["passthrough"]["unsupported_parameter_type"]` に記録し、生パラメータ、型名、reprを統計へ含めてはならない。将来この操作を障害注入対象にする場合は、occurrenceとreplay系列が変わるため、`POLICY_VERSION` 更新の要否を判断しなければならない。
 
@@ -160,6 +160,6 @@ rowcount = cursor.rowcount
 
 ## SQL、scope、backend の境界
 
-core は backend ライブラリを import してはならず、backend 由来の例外を変換してはならない。DogDB はSQLを書き換えず、分類済み操作の論理結果だけを加工する。
+core は backend ライブラリを import してはならず、backend 由来の例外を変換してはならない。DogDB はSQLを書き換えず、分類済み操作の論理結果だけを加工する。SQL 分類は sqlglot による構文解析を用いる。
 
 `only_tables` / `exclude_tables` は保守的に抽出できたトップレベル `FROM` のテーブル名へ適用する。抽出不能文は `only_tables` 指定時は対象外、`exclude_tables` 指定時は対象とする。両方のscopeを同時に指定してはならない。scope、イベント、統計へ生SQLや生パラメータを保持してはならない。

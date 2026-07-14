@@ -24,7 +24,7 @@ def test_classifier_extracts_conservative_from_table_names():
 
     assert simple.kind is SQLKind.SELECT and simple.tables == frozenset({"users"})
     assert quoted.tables == frozenset({"orders"})
-    assert nested.tables is None
+    assert nested.tables == frozenset({'users'})
 
 
 def test_only_tables_applies_fault_only_to_matching_table():
@@ -40,13 +40,13 @@ def test_only_tables_applies_fault_only_to_matching_table():
     assert [event.fault for event in conn.dolly.log()] == ["SHUFFLE"]
 
 
-def test_unextractable_table_is_outside_only_scope():
+def test_subquery_table_is_inside_only_scope():
     conn = dogdb.wrap(
         _database(), seed=42, faults={"SHUFFLE": 1}, only_tables=["users"]
     )
     rows = conn.execute("select id from (select id from users) nested").fetchall()
-    assert rows == [(1,), (2,), (3,)]
-    assert conn.dolly.log() == []
+    assert rows != [(1,), (2,), (3,)]
+    assert len(conn.dolly.log()) == 1
 
 
 def test_unextractable_table_remains_inside_exclude_scope():

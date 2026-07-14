@@ -10,7 +10,7 @@ from dogdb.core.fingerprints import template_fingerprint
 def test_stats_report_anonymous_classification_and_interventions():
     conn = dogdb.wrap(raw_three_row_connection(), seed=42, faults={"ECHO": 1})
     select_sql = "select id from t order by id"
-    unknown_sql = "with values_cte as (select 1) select * from values_cte"
+    unknown_sql = "PRAGMA table_info(t)"
     conn.execute(select_sql).fetchall()
     conn.execute(unknown_sql).fetchall()
 

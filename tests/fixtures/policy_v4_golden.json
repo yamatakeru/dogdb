@@ -1,0 +1,106 @@
+{
+  "STASH": {
+    "rows": [
+      [
+        0
+      ],
+      [
+        1
+      ],
+      [
+        3
+      ],
+      [
+        4
+      ]
+    ],
+    "error": null,
+    "events": [
+      {
+        "schema_version": 2,
+        "event_id": "6b3e114b2eb1773a8c3bc9841b9702db",
+        "session_id": "fixture-stash",
+        "seq": 1,
+        "event_type": "fault_injected",
+        "fault": "STASH",
+        "phase": "on_result",
+        "template_fingerprint": "sha256:db643e6801062fc2e24724c02746fc7e712f348d64d472d5cdce5641af75514e",
+        "parameter_fingerprint": "hmac-sha256:edc8b177423d95cd4ab7c68ab5014765914c8d602e24b5417ed9e2c77e4bee6e",
+        "occurrence": 1,
+        "decision_key": "sha256:388ed7399dee0d2cf5050a982c86277098dee7d926d92b3e98aaa5d24f61f252",
+        "outcome": "rows_hidden",
+        "details": {
+          "row_indices": [
+            2
+          ],
+          "treasure_id": "6cd38f8896ed205e2bf155df47dcfe77"
+        }
+      }
+    ]
+  },
+  "SHUFFLE": {
+    "rows": [
+      [
+        0
+      ],
+      [
+        2
+      ],
+      [
+        3
+      ],
+      [
+        4
+      ],
+      [
+        1
+      ]
+    ],
+    "error": null,
+    "events": [
+      {
+        "schema_version": 2,
+        "event_id": "c8a6c86115ba28fa56e68b5dd4cf6d61",
+        "session_id": "fixture-shuffle",
+        "seq": 1,
+        "event_type": "fault_injected",
+        "fault": "SHUFFLE",
+        "phase": "on_result",
+        "template_fingerprint": "sha256:db643e6801062fc2e24724c02746fc7e712f348d64d472d5cdce5641af75514e",
+        "parameter_fingerprint": "hmac-sha256:f96850f1de8f14625b23fd4fc721587c61b69ced529090284b7969ad732807b7",
+        "occurrence": 1,
+        "decision_key": "sha256:36d3ee3ef57d72557d487beba1ee0ee5305cf52393cbdf3faa6df5cbf66f6a56",
+        "outcome": "rows_reordered",
+        "details": {}
+      }
+    ]
+  },
+  "IGNORE": {
+    "rows": null,
+    "error": {
+      "type": "DollyIgnoredError",
+      "event_id": "96613076609ccdcf16f593cc0049cc1f",
+      "fault": "IGNORE",
+      "phase": "before_execute",
+      "retryable": true,
+      "outcome": "not_executed"
+    },
+    "events": [
+      {
+        "schema_version": 2,
+        "event_id": "96613076609ccdcf16f593cc0049cc1f",
+        "session_id": "fixture-ignore",
+        "seq": 1,
+        "event_type": "fault_injected",
+        "fault": "IGNORE",
+        "phase": "before_execute",
+        "template_fingerprint": "sha256:db643e6801062fc2e24724c02746fc7e712f348d64d472d5cdce5641af75514e",
+        "parameter_fingerprint": "hmac-sha256:5f992983ad768efea8896cdc54a673cc1f1c62f2e5cd3f6ff45f595ee34b6880",
+        "occurrence": 1,
+        "decision_key": "sha256:e80b9de11d592f582efd1cccfe68aed4ce66e426ca9becde7805665e674884cd",
+        "outcome": "not_executed",
+        "details": {}
+      }
+    ]
+  }
+}

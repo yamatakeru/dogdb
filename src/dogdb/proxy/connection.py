@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from dogdb.adapters.base import Adapter
-from dogdb.adapters.duckdb import DuckDBAdapter
 from dogdb.adapters.sqlite import SQLiteAdapter
 from dogdb.core.auto_return import AutoReturnScheduler, parse_auto_return_config
 from dogdb.core.decision import DecisionEngine
@@ -246,6 +245,11 @@ class _InterventionEngine:
         return adapter.executemany(sql, params)
 
 
+def _lazy_duckdb_adapter(connection: Any) -> Any:
+    from dogdb.adapters.duckdb import DuckDBAdapter
+    return DuckDBAdapter(connection)
+
+
 def _describe(result: LogicalResult) -> list[tuple[Any, ...]]:
     """Rebuild DB-API description entries: post-fault names, position-bound types."""
     column_types = result.column_types or [None] * len(result.columns)
@@ -399,7 +403,7 @@ class DuckDBProxy(_EngineBackedSurface):
         clone = self._connection.cursor()
         return DuckDBProxy(
             clone,
-            DuckDBAdapter(clone),
+            _lazy_duckdb_adapter(clone),
             allow_native_passthrough=self._allow_native_passthrough,
             shared_engine=self._engine,
         )
@@ -597,7 +601,7 @@ def _adapter_for(connection: Any) -> Adapter:
     if module.startswith("sqlite3"):
         return SQLiteAdapter(connection)
     if "duckdb" in module or "duckdb" in type(connection).__name__.lower():
-        return DuckDBAdapter(connection)
+        return _lazy_duckdb_adapter(connection)
     raise TypeError(f"unsupported connection type: {type(connection)!r}")
 
 

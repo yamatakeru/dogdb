@@ -31,9 +31,34 @@ FINGERPRINT_PARAMETER_TYPES = (
 
 
 def normalize_sql(sql: str) -> str:
-    """Apply policy v1 normalization: trim, collapse whitespace, lowercase."""
+    """Apply policy v4 normalization: trim, collapse whitespace, lowercase
+    non-literal parts, preserve string literal case."""
 
-    return _WHITESPACE.sub(" ", sql.strip()).lower()
+    return _WHITESPACE.sub(" ", _lower_preserving_literals(sql.strip()))
+
+
+def _lower_preserving_literals(text: str) -> str:
+    """Lowercase characters outside single-quoted string literals."""
+    result: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "'":
+            start = i
+            i += 1
+            while i < n:
+                if text[i] == "'":
+                    if i + 1 < n and text[i + 1] == "'":
+                        i += 2
+                        continue
+                    break
+                i += 1
+            result.append(text[start : i + 1 if i < n else i])
+            i += 1 if i < n else 0
+        else:
+            result.append(text[i].lower())
+            i += 1
+    return "".join(result)
 
 
 def template_fingerprint(sql: str) -> str:
