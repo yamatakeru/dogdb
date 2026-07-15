@@ -80,6 +80,8 @@ decision key の導出入力には加えない。taxonomy の追加によって
 
 `max_intervention_rows`（既定 10,000）は materialize 済み結果に `on_result` fault を適用する行数上限であり、取得件数または保持メモリの上限ではない。超過結果を切り詰めてはならない。`on_max_rows="skip"`（既定）では結果を無改変で返し、`on_max_rows="error"` では `limit_exceeded` を記録した後に非 retryable な `DollyLimitError` を送出する。後者も backend 実行および全行 materialize の後に発生する「実行済みなのに例外」の意味論を持つ。
 
+`max_result_rows`（既定 `None`）は、分類・scope済みのSELECTに対する独立したopt-inの読み取り上限である。指定時はbackendから `max_result_rows + 1` 行目を観測した時点で読み取りを中断し、部分結果を返さず、`limit_exceeded` を記録して非 retryable な `DollyLimitError` を送出する。この時点ではbackend上でクエリの実行が開始済みである。`max_result_rows` と `max_intervention_rows` の間に結合バリデーションはなく、一方の値を他方の評価に使わない。両方の超過条件を満たし得る場合、`max_result_rows` はbackend読み取り中に先に中断し得て、全行materialize後の `max_intervention_rows` 評価には到達しない。
+
 ## イベント schema v2
 
 イベントは1イベント1行の UTF-8 JSONL とする。全イベントに次のコアフィールドを必須とする。
@@ -114,10 +116,10 @@ decision key の導出入力には加えない。taxonomy の追加によって
 | event_type | outcome | meaning |
 |---|---|---|
 | `limit_exceeded` | `fault_skipped` | 介入上限を超えたため結果を無改変で返し、fault 注入を見送った |
-| `limit_exceeded` | `error` | 介入上限を超えたイベントを記録後、`DollyLimitError` を送出した |
+| `limit_exceeded` | `error` | 設定された上限を超えたイベントを記録後、`DollyLimitError` を送出した |
 | `decision_evaluated` | `not_injected` | debug 評価では候補を調べたが fault は適用されなかった |
 
-`limit_exceeded.details.limit` は現在 `max_intervention_rows`、`configured` は設定上限、`observed` は materialize された行数である。旧識別子 `max_rows` は、本変更（`max-rows-and-session-limits`）適用前に記録された履歴イベントにのみ出現する。生SQL、生パラメータ、生行値をイベントへ含めてはならない。
+`limit_exceeded.details.limit` は `max_intervention_rows` または `max_result_rows`、`configured` は設定上限である。`max_intervention_rows` 経路の `observed` はmaterializeされた実際の行数（integer）、`max_result_rows` 経路の `observed` は総行数を読み切らないことを表す固定文字列 `"exceeded"` とする。旧識別子 `max_rows` は、本変更（`max-rows-and-session-limits`）適用前に記録された履歴イベントにのみ出現する。生SQL、生パラメータ、生行値をイベントへ含めてはならない。
 
 ## native passthrough と escape hatch 統計
 
@@ -134,6 +136,10 @@ escape hatchの値はnative methodの**呼び出し回数**であり、backend�
 ## バックエンド別公開表面と適合契約
 
 公開表面はバックエンドごとに分岐し、宣言した対応表面内でそれぞれのネイティブ接続と同型でなければならない。両バックエンド間で一致を要求する conformance 契約は介入コアに限定する。同一 seed・同一 SQL 列に対する decision、障害イベント列、および論理結果への障害適用結果は一致しなければならないが、execute の返り値型、結果取得の入口、コンテキストマネージャ意味論を含む公開表面の一致は要求しない。表面挙動は「もう一方のバックエンド」ではなく、各バックエンドのネイティブドライバ（sqlite3／duckdb）との同型性で検証する。クロスバックエンドの表面等価性は契約の対象外である。
+
+### アダプタ契約
+
+各backend adapterは `execute(sql, params, *, row_cap: int | None = None) -> LogicalResult` を実装する。`row_cap=None` の場合は従来と同じ `fetchall` による全行materialize経路を通り、挙動を変えてはならない。正の整数を指定した場合は `fetchmany` で取得し、`row_cap + 1` 行目を観測した時点でそれ以降を取得せず、完成した `LogicalResult` の代わりに内部中断シグナルを送出する。`description is None` の文は読み取り中断の対象外である。SQLite／DuckDBは同じ境界で中断しなければならない。
 
 ### SQLite 表面
 

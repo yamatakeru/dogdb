@@ -308,7 +308,9 @@ class FaultEngine:
             **extra,
         )
 
-    def before_execute(self, decision: Decision) -> bool:
+    def before_execute(
+        self, decision: Decision, *, record_debug: bool = True
+    ) -> bool:
         selected = self.select_candidate(
             decision,
             {"BARK", "GUARD_BOWL", "IGNORE", "SLOTH"},
@@ -335,11 +337,15 @@ class FaultEngine:
             assert self.clock is not None
             self.clock(delay_ms / 1_000)
             return True
-        self._debug_decision(
+        if record_debug:
+            self.debug_before_execute(decision)
+        return False
+
+    def debug_before_execute(self, decision: Decision) -> Event | None:
+        return self._debug_decision(
             decision,
             candidates=["BARK", "GUARD_BOWL", "IGNORE", "SLOTH"],
         )
-        return False
 
     def _raise_before_execute(
         self,
@@ -499,6 +505,35 @@ class FaultEngine:
                 "configured": self.max_intervention_rows,
                 "observed": observed,
             },
+        )
+
+    def raise_result_limit_exceeded(
+        self, decision: Decision, *, configured: int
+    ) -> NoReturn:
+        next_seq = self.events.next_seq()
+        event_id = self.decisions.deterministic_id(
+            decision.decision_key, f"event:{next_seq}:LIMIT"
+        )
+        event = self.events.append(
+            event_id=event_id,
+            event_type="limit_exceeded",
+            phase=decision.phase,
+            template_fingerprint=decision.template_fingerprint,
+            parameter_fingerprint=decision.parameter_fingerprint,
+            occurrence=decision.occurrence,
+            decision_key=decision.decision_key,
+            outcome="error",
+            details={
+                "limit": "max_result_rows",
+                "configured": configured,
+                "observed": "exceeded",
+            },
+        )
+        self._raise_from_event(
+            DollyLimitError,
+            "Dolly stopped reading after max_result_rows was exceeded.",
+            event,
+            retryable=False,
         )
 
     def _stash(

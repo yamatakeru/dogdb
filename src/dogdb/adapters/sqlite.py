@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Sequence
 from typing import Any
 
-from dogdb.adapters.base import materialize
+from dogdb.adapters.base import materialize_with_row_cap
 from dogdb.core.models import LogicalResult
 
 
@@ -18,9 +18,15 @@ class SQLiteAdapter:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
 
-    def execute(self, sql: str, params: Sequence[Any] | None = None) -> LogicalResult:
+    def execute(
+        self,
+        sql: str,
+        params: Sequence[Any] | None = None,
+        *,
+        row_cap: int | None = None,
+    ) -> LogicalResult:
         cursor = self.connection.execute(sql, params) if params else self.connection.execute(sql)
-        return materialize(cursor)
+        return materialize_with_row_cap(cursor, row_cap=row_cap)
 
     def executemany(
         self, sql: str, params: Sequence[Sequence[Any]]

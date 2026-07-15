@@ -168,7 +168,7 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
 - SQL 分類は全バックエンドでsqlglotの方言中立（generic）parseを使います。CTE（`WITH ... SELECT`）とUNION／EXCEPT／INTERSECTはSELECTとして障害候補になります。`INSERT`／`UPDATE ... RETURNING`はOTHERのままで、複文、PRAGMA、EXPLAIN、parse失敗・分類不能文、名前付きパラメータ、fingerprint入力域外の位置パラメータ、`executemany`へ直接faultは注入せず、faultのdecision／event／occurrenceを生成しないまま素通しします。これらの素通し操作でもmood／自動返却の論理時計は1操作として進むため、mood遷移や自動返却（`auto_return`）の状態イベントは生成され得ます。
 - 「注入したつもり」の素通しを明示的に検出するには`on_passthrough="warn"`または`"error"`を指定します。`transaction_statement`と`executemany`は通知・拒否の対象外です。
-- 結果を `execute` 時に全件 materialize します。`max_intervention_rows`（既定 10,000）は materialize 済み結果へ fault を適用する行数上限であり、取得件数や保持メモリの上限ではありません。超過時も既定では全行を無改変で返すため、メモリ保護にはなりません。house は 1,000 件を上限とし、小規模なテストデータを前提にします。
+- 既定では結果を `execute` 時に全件 materialize します。`max_intervention_rows`（既定 10,000）は materialize 済み結果へ fault を適用する行数上限であり、取得件数や保持メモリの上限ではありません。超過時も既定では全行を無改変で返すため、メモリ保護にはなりません。真の読み取り・保持メモリ上限が必要な場合は、opt-inの`max_result_rows`を指定できます。分類・scope済みSELECTで上限+1行目を観測すると、それ以降を取得せず、部分結果を返さずに`limit_exceeded`と非retryableな`DollyLimitError`を生成します。この判定時点ではbackend上のクエリ実行は開始済みです。house は 1,000 件を上限とし、小規模なテストデータを前提にします。
 - 大きすぎる結果を明示的にテスト失敗にするには `on_max_rows="error"` を指定します。`limit_exceeded` を記録してから非 retryable な `DollyLimitError` を送出しますが、この判定はバックエンド実行と全行 materialize の後です。必要なら `max_intervention_rows` を調整してください。
 - occurrence カウンタと fingerprint 単位の統計は、決定性を守るためセッション中に退避・再初期化せず単調増加します。長時間稼働プロセスへ常設せず、テストケースまたは小規模テストスイート単位で接続をラップし直してください。
 - JSONL は単一 writer 契約です。複数プロセスから同じファイルへ追記しないでください。
