@@ -8,6 +8,8 @@ from dogdb.core.errors import (
     DollyIgnoredError,
     DollyLimitError,
     DollyNoDropError,
+    DollyPassthroughError,
+    DollyPassthroughWarning,
     DollyStashedError,
     DollyTailChaseError,
 )
@@ -19,6 +21,8 @@ __all__ = [
     "DollyIgnoredError",
     "DollyLimitError",
     "DollyNoDropError",
+    "DollyPassthroughError",
+    "DollyPassthroughWarning",
     "DollyStashedError",
     "DollyTailChaseError",
     "connect",

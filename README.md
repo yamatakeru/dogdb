@@ -9,7 +9,11 @@ DogDB は DuckDB / SQLite の DB-API 接続を包み、SQL の意味論レベル
 
 ## クイックスタート
 
-通常インストールではDuckDBドライバに加えて、方言中立なSQL分類に使うsqlglotが依存として導入されます。SQLiteバックエンド自体はPython標準の`sqlite3`を使います。
+通常インストールでは、方言中立なSQL分類に使うsqlglotが依存として導入されます。SQLiteバックエンド自体はPython標準の`sqlite3`を使います。次のクイックスタートで使うDuckDBドライバはextraとして導入します。
+
+```console
+pip install "dogdb[duckdb]"
+```
 
 ```python
 import duckdb
@@ -31,13 +35,13 @@ print(conn.dolly.house())
 conn.dolly.return_all()
 ```
 
-SQLite なら `dogdb.connect("test.sqlite", backend="sqlite", seed=42)`、DuckDB なら `backend="duckdb"` を使えます。`seed` は必須です。既定の障害確率はすべて0で、`faults`または`fault_probabilities`に障害名と0〜1の確率を渡します。まず1障害を小さな確率で有効化し、テストが安定してから次の障害を1個ずつ足してください。
+`dogdb.connect("test.sqlite", seed=42)` は既定でSQLiteを使います（`backend="sqlite"`も明示できます）。DuckDBなら`backend="duckdb"`を指定します。`seed` は必須です。`faults`に障害名と0〜1の**発火確率（firing probability）**を渡します。既定の発火確率はすべて0です。まず1障害を小さな確率で有効化し、テストが安定してから次の障害を1個ずつ足してください。
 
 イベントを JSONL に残すには `log_path="dogdb-events.jsonl"` を指定します。生 SQL、生パラメータ、生行値は記録されません。パラメータを決定キーにも参加させたい場合だけ `include_params=True` を指定してください。
 
 ## バックエンド別の接続表面
 
-DogDB は介入コアを共有しますが、接続表面は各ネイティブドライバに合わせて分岐します。conformance が保証するのは、同一seed・同一SQL列に対する decision、障害イベント列、論理結果への障害適用結果という「介入コアの一致」です。SQLite と DuckDB の公開表面が互いに同じであることは保証せず、宣言した対応表面内でそれぞれ sqlite3／duckdb と同型になるよう検証します。クロスバックエンドの表面等価性は対象外です。
+DogDB は介入コアを共有しますが、接続表面は各ネイティブドライバに合わせて分岐し、`connect()`の既定バックエンドはSQLiteです。conformance が保証するのは、同一seed・同一SQL列に対する decision、障害イベント列、論理結果への障害適用結果という「介入コアの一致」です。SQLite と DuckDB の公開表面が互いに同じであることは保証せず、宣言した対応表面内でそれぞれ sqlite3／duckdb と同型になるよう検証します。クロスバックエンドの表面等価性は対象外です。
 
 ### SQLite
 
@@ -133,6 +137,20 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 `conn.dolly.stats()`は匿名fingerprintごとのSELECT／UNKNOWN分類数と介入数に加え、理由別の匿名素通し件数（`passthrough`）と、`allow_native_passthrough=True`時のネイティブ転送呼び出し回数（`escape_hatches`、属性の取得時ではなく呼び出し時に集計）を返します。診断メタ情報として`sqlglot_version`も返しますが、decision keyやイベントschemaには使いません。生SQL、生parameter、parameterの型名は含みません。
 
+`passthrough` は発生した理由だけを含む疎な辞書です。理由キーの正規語彙は次の5種です。
+
+| 理由キー | 発生箇所 |
+|---|---|
+| `named_parameters` | Mapping型の名前付きパラメータを使う`execute` |
+| `unknown_sql` | SQL分類器がUNKNOWNと判定した文 |
+| `transaction_statement` | BEGIN／COMMIT／ROLLBACK |
+| `unsupported_parameter_type` | fingerprint入力域外の位置パラメータを使う`execute` |
+| `executemany` | `executemany`入口 |
+
+`wrap(..., on_passthrough=...)` で素通しの扱いを選べます。既定の`"allow"`は静かに実行を続け、`"warn"`は`DollyPassthroughWarning`を通知してから実行を続け、`"error"`は`DollyPassthroughError`（`retryable=False`）でバックエンド実行前に止めます。warn/errorの発火対象は`named_parameters`、`unknown_sql`、`unsupported_parameter_type`です。正常運転上必要な`transaction_statement`と、明示的に対象外の`executemany`は、どのモードでも無警告・無エラーで素通しします。理由別のstats記録はモードに関わらず行われます。
+
+`faults`で設定する発火確率は、契約文書でいうmood倍率適用前のbase weightです。発火判定は`fire:<FAULT>`でdomain separationされ、faultごとに独立しますが、適用は固定優先順位の先勝ちで最大1件です。そのため、同一操作で前提条件・スコープを満たす先順位faultをそれぞれ`j`とすると、後順位fault`i`の**観測発生率（observed rate）**は概算`p_i × Π(1−p_j)`に遮蔽されます。ここで`p_i`と`p_j`はmood倍率適用後の実効発火確率で、mood無効時は設定した発火確率に等しく、mood有効時はbase weightへ実効倍率がさらに乗ります。この違いが、障害を1個ずつ小さな発火確率で足すことを推奨する理由です。
+
 ## 使用例
 
 - [STASH と house](examples/01_stash_and_house.py) — 隠れた行の粘着性と `return_all()` による復帰を確認します。
@@ -144,11 +162,13 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 ## 限界と安全上の前提
 
+- 設定した発火確率は観測発生率ではなく、先順位faultとの競合やmood倍率によって実際の適用頻度は変わります。
 - 決定性の保証単位はセッション全体です。同一 seed・session・設定・sqlglotバージョンで、セッション先頭から同一の順序付き操作列を流した場合のみ同じ障害列を再現し、途中からの部分 replay や異なるsqlglotバージョン間の一致は保証しません。
 - 対応する入口は上記のバックエンド別接続表面に限定します。それ以外の未知属性は、障害注入を沈黙のまま迂回させないため既定で拒否します。生接続の機能が必要な場合は`allow_native_passthrough=True`を`wrap()`へ指定できますが、その転送経路は障害注入・イベント記録・論理時計・occurrence更新の対象外です。
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
 - SQL 分類は全バックエンドでsqlglotの方言中立（generic）parseを使います。CTE（`WITH ... SELECT`）とUNION／EXCEPT／INTERSECTはSELECTとして障害候補になります。`INSERT`／`UPDATE ... RETURNING`はOTHERのままで、複文、PRAGMA、EXPLAIN、parse失敗・分類不能文、名前付きパラメータ、fingerprint入力域外の位置パラメータ、`executemany`へ直接faultは注入せず、faultのdecision／event／occurrenceを生成しないまま素通しします。これらの素通し操作でもmood／自動返却の論理時計は1操作として進むため、mood遷移や自動返却（`auto_return`）の状態イベントは生成され得ます。
-- 結果を `execute` 時に全件 materialize します。`max_intervention_rows`（既定 10,000）は materialize 済み結果へ fault を適用する行数上限であり、取得件数や保持メモリの上限ではありません。超過時も既定では全行を無改変で返すため、メモリ保護にはなりません。house は 1,000 件を上限とし、小規模なテストデータを前提にします。
+- 「注入したつもり」の素通しを明示的に検出するには`on_passthrough="warn"`または`"error"`を指定します。`transaction_statement`と`executemany`は通知・拒否の対象外です。
+- 既定では結果を `execute` 時に全件 materialize します。`max_intervention_rows`（既定 10,000）は materialize 済み結果へ fault を適用する行数上限であり、取得件数や保持メモリの上限ではありません。超過時も既定では全行を無改変で返すため、メモリ保護にはなりません。真の読み取り・保持メモリ上限が必要な場合は、opt-inの`max_result_rows`を指定できます。分類・scope済みSELECTで上限+1行目を観測すると、それ以降を取得せず、部分結果を返さずに`limit_exceeded`と非retryableな`DollyLimitError`を生成します。この判定時点ではbackend上のクエリ実行は開始済みです。house は 1,000 件を上限とし、小規模なテストデータを前提にします。
 - 大きすぎる結果を明示的にテスト失敗にするには `on_max_rows="error"` を指定します。`limit_exceeded` を記録してから非 retryable な `DollyLimitError` を送出しますが、この判定はバックエンド実行と全行 materialize の後です。必要なら `max_intervention_rows` を調整してください。
 - occurrence カウンタと fingerprint 単位の統計は、決定性を守るためセッション中に退避・再初期化せず単調増加します。長時間稼働プロセスへ常設せず、テストケースまたは小規模テストスイート単位で接続をラップし直してください。
 - JSONL は単一 writer 契約です。複数プロセスから同じファイルへ追記しないでください。

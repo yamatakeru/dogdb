@@ -18,9 +18,15 @@ class SQLiteAdapter:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
 
-    def execute(self, sql: str, params: Sequence[Any] | None = None) -> LogicalResult:
+    def execute(
+        self,
+        sql: str,
+        params: Sequence[Any] | None = None,
+        *,
+        row_cap: int | None = None,
+    ) -> LogicalResult:
         cursor = self.connection.execute(sql, params) if params else self.connection.execute(sql)
-        return materialize(cursor)
+        return materialize(cursor, row_cap=row_cap)
 
     def executemany(
         self, sql: str, params: Sequence[Sequence[Any]]

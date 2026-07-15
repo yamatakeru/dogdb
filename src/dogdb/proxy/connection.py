@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import time
+import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NoReturn
 
-from dogdb.adapters.base import Adapter
+from dogdb.adapters.base import Adapter, RowCapExceeded
 from dogdb.adapters.duckdb import DuckDBAdapter
 from dogdb.adapters.sqlite import SQLiteAdapter
 from dogdb.core.auto_return import AutoReturnScheduler, parse_auto_return_config
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.event_log import Event, EventLog
+from dogdb.core.errors import DollyPassthroughError, DollyPassthroughWarning
 from dogdb.core.faults import (
     BEFORE_EXECUTE_PRIORITY,
     KNOWN_FAULTS,
@@ -32,6 +34,18 @@ from dogdb.core.mood import MoodEngine, parse_mood_config
 from dogdb.core.sql import SQLKind, classify_sql
 from dogdb.core.stale_cache import StaleReadCache
 from dogdb.core.stats import StatsTracker
+from dogdb.core.validation import require_positive_int
+
+# on_passthrough="warn"/"error" fire only for these reasons; transaction
+# statements and executemany stay silent in every mode.
+_ENFORCED_PASSTHROUGH_REASONS = frozenset(
+    {"unknown_sql", "named_parameters", "unsupported_parameter_type"}
+)
+
+# Attribute passthrough warnings to caller code: the entry surfaces have
+# different depths (connection execute, cursor execute), so a fixed
+# stacklevel cannot point at user code on every path.
+_WARN_SKIP_PREFIXES = (str(Path(__file__).resolve().parent.parent),)
 
 
 class DollyNamespace:
@@ -91,6 +105,7 @@ class _InterventionEngine:
         policy: FaultPolicy,
         log_path: str | Path | None,
         max_intervention_rows: int,
+        max_result_rows: int | None,
         house_limit: int,
         only_tables: frozenset[str] | None,
         exclude_tables: frozenset[str] | None,
@@ -100,6 +115,7 @@ class _InterventionEngine:
         auto_return: AutoReturnScheduler | None,
         stale_cache: StaleReadCache | None,
         stats: StatsTracker,
+        on_passthrough: str,
     ) -> None:
         self._decisions = DecisionEngine(
             seed=seed, session_id=session_id, include_params=include_params
@@ -123,6 +139,10 @@ class _InterventionEngine:
         self._auto_return = auto_return
         self._stale_cache = stale_cache
         self._stats = stats
+        # Passthrough policy is deliberately outside FaultPolicy: it produces no
+        # decision or event and therefore must not affect deterministic derivation.
+        self._on_passthrough = on_passthrough
+        self._max_result_rows = max_result_rows
         self._logical_tick = 0 if mood is not None or auto_return is not None else None
         self._only_tables = only_tables
         self._exclude_tables = exclude_tables
@@ -140,24 +160,33 @@ class _InterventionEngine:
         self._stats.record_classification(fingerprint, classification.kind)
         is_mapping = isinstance(params, Mapping)
         unsupported_params = not is_mapping and not params_in_fingerprint_domain(params)
-        if unsupported_params:
-            self._stats.record_passthrough("unsupported_parameter_type")
-        if (
-            is_mapping
-            or classification.kind is SQLKind.UNKNOWN
-            or classification.is_transaction
-            or unsupported_params
-        ):
+        # Preserve the historical early-return evaluation order. It is also the
+        # classification priority when an operation matches multiple reasons.
+        passthrough_reason = None
+        if is_mapping:
+            passthrough_reason = "named_parameters"
+        elif classification.kind is SQLKind.UNKNOWN:
+            passthrough_reason = "unknown_sql"
+        elif classification.is_transaction:
+            passthrough_reason = "transaction_statement"
+        elif unsupported_params:
+            passthrough_reason = "unsupported_parameter_type"
+        if passthrough_reason is not None:
+            self._stats.record_passthrough(passthrough_reason)
+            self._apply_passthrough_policy(passthrough_reason)
             return adapter.execute(sql, params)  # type: ignore[arg-type]
 
         template, parameter, occurrence = self._decisions.begin(
             sql, params, template_fingerprint=fingerprint
         )
         scoped = self._scope_applies(classification.tables)
+        scoped_select = scoped and classification.kind is SQLKind.SELECT
+        capped_read = self._max_result_rows is not None and scoped_select
         evaluate_before = scoped and (
             self._faults.debug
             or self._faults.has_effective_weight(BEFORE_EXECUTE_PRIORITY)
         )
+        before = None
         before_consumed = False
         if evaluate_before:
             before = self._decisions.decide(
@@ -166,9 +195,28 @@ class _InterventionEngine:
                 occurrence=occurrence,
                 phase="before_execute",
             )
-            before_consumed = self._faults.before_execute(before)
-        result = adapter.execute(sql, params)
-        scoped_select = scoped and classification.kind is SQLKind.SELECT
+            # Capped reads defer the no-fire debug event until the read
+            # completes: an interrupted operation must not record any
+            # decision_evaluated event.
+            before_consumed = self._faults.before_execute(
+                before, record_debug=not capped_read
+            )
+        try:
+            result = (
+                adapter.execute(sql, params, row_cap=self._max_result_rows)
+                if capped_read
+                else adapter.execute(sql, params)
+            )
+        except RowCapExceeded:
+            assert self._max_result_rows is not None
+            self._raise_result_limit_exceeded(
+                template=template,
+                parameter=parameter,
+                occurrence=occurrence,
+                configured=self._max_result_rows,
+            )
+        if capped_read and before is not None and not before_consumed:
+            self._faults.debug_before_execute(before)
         cache_result = self._stale_cache is not None and scoped_select
         oversized_result = (
             scoped_select
@@ -203,6 +251,20 @@ class _InterventionEngine:
             assert on_result is not None
             self._stale_cache.add(on_result, logical_result)
         return logical_result
+
+    def _apply_passthrough_policy(self, reason: str) -> None:
+        if reason not in _ENFORCED_PASSTHROUGH_REASONS:
+            return
+        message = f"DogDB fault injection passthrough: {reason}"
+        if self._on_passthrough == "warn":
+            warnings.warn(
+                message,
+                DollyPassthroughWarning,
+                stacklevel=2,
+                skip_file_prefixes=_WARN_SKIP_PREFIXES,
+            )
+        elif self._on_passthrough == "error":
+            raise DollyPassthroughError(message)
 
     def _begin_operation(self) -> None:
         if self._logical_tick is None:
@@ -239,10 +301,29 @@ class _InterventionEngine:
             return tables is None or not bool(tables & self._exclude_tables)
         return True
 
+    def _raise_result_limit_exceeded(
+        self,
+        *,
+        template: str,
+        parameter: str | Callable[[], str],
+        occurrence: int,
+        configured: int,
+    ) -> NoReturn:
+        decision = self._decisions.decide(
+            template=template,
+            parameter=parameter,
+            occurrence=occurrence,
+            phase="on_result",
+        )
+        self._faults.raise_result_limit_exceeded(
+            decision, configured=configured
+        )
+
     def executemany(
         self, adapter: Adapter, sql: str, params: Sequence[Sequence[Any]]
     ) -> LogicalResult:
         self._begin_operation()
+        self._stats.record_passthrough("executemany")
         return adapter.executemany(sql, params)
 
 
@@ -608,7 +689,6 @@ def wrap(
     session_id: str | None = None,
     include_params: bool = False,
     allow_native_passthrough: bool = False,
-    fault_probabilities: Mapping[str, float] | None = None,
     faults: Mapping[str, float] | None = None,
     stash_mode: str = "missing",
     tail_chase_mode: str = "silent",
@@ -624,7 +704,9 @@ def wrap(
     auto_return: bool | Mapping[str, Any] | Sequence[int] | None = False,
     log_path: str | Path | None = None,
     max_intervention_rows: int = 10_000,
+    max_result_rows: int | None = None,
     on_max_rows: str = "skip",
+    on_passthrough: str = "allow",
     house_limit: int = 1_000,
     only_tables: Sequence[str] | None = None,
     exclude_tables: Sequence[str] | None = None,
@@ -632,12 +714,15 @@ def wrap(
 ) -> DuckDBProxy | SQLiteProxy:
     if only_tables is not None and exclude_tables is not None:
         raise ValueError("only_tables and exclude_tables are mutually exclusive")
+    if on_passthrough not in {"allow", "warn", "error"}:
+        raise ValueError("on_passthrough must be 'allow', 'warn', or 'error'")
     if not callable(clock):
         raise ValueError("clock must be callable")
+    if max_result_rows is not None:
+        max_result_rows = require_positive_int(max_result_rows, "max_result_rows")
     probabilities: dict[str, float] = {}
-    supplied = fault_probabilities if fault_probabilities is not None else faults
-    if supplied:
-        probabilities.update({str(key).upper(): value for key, value in supplied.items()})
+    if faults:
+        probabilities.update({str(key).upper(): value for key, value in faults.items()})
     unknown = set(probabilities) - KNOWN_FAULTS
     if unknown:
         raise ValueError(f"unknown faults: {', '.join(sorted(unknown))}")
@@ -685,6 +770,7 @@ def wrap(
         ),
         log_path=log_path,
         max_intervention_rows=max_intervention_rows,
+        max_result_rows=max_result_rows,
         house_limit=house_limit,
         only_tables=_normalize_tables(only_tables),
         exclude_tables=_normalize_tables(exclude_tables),
@@ -694,6 +780,7 @@ def wrap(
         auto_return=auto_return_scheduler,
         stale_cache=stale_cache,
         stats=stats,
+        on_passthrough=on_passthrough,
     )
 
 
@@ -709,16 +796,23 @@ def _normalize_tables(tables: Sequence[str] | None) -> frozenset[str] | None:
 def connect(
     path: str = ":memory:",
     *,
-    backend: str = "duckdb",
+    backend: str = "sqlite",
     seed: object,
     **options: Any,
 ) -> DuckDBProxy | SQLiteProxy:
+    """Create a proxied connection, using SQLite as the default backend."""
     if backend == "sqlite":
         import sqlite3
 
         connection = sqlite3.connect(path)
     elif backend == "duckdb":
-        import duckdb
+        try:
+            import duckdb
+        except ImportError as exc:
+            raise ImportError(
+                'backend="duckdb" requires duckdb; install it with '
+                '`pip install "dogdb[duckdb]"`.'
+            ) from exc
 
         connection = duckdb.connect(path)
     else:
