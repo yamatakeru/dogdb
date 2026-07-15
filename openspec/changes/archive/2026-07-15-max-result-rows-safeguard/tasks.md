@@ -43,5 +43,5 @@
 
 - [x] 6.1 `openspec validate max-result-rows-safeguard`（または`openspec validate --change max-result-rows-safeguard`）を実行しエラーがないことを確認する
 - [x] 6.2 全テストスイート（`uv run pytest`）が通過することを確認する
-- [ ] 6.3 GitHub issue #24 に実装完了コメントを残す
-- [ ] 6.4 統括issue #19 のW6-5チェックボックスを更新する
+- [x] 6.3 GitHub issue #24 に実装完了コメントを残す
+- [x] 6.4 統括issue #19 のW6-5チェックボックスを更新する

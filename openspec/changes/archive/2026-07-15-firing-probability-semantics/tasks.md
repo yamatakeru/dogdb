@@ -26,5 +26,5 @@
 
 - [x] 4.1 `openspec validate --change firing-probability-semantics`（または `openspec validate firing-probability-semantics`）が通ることを確認する
 - [x] 4.2 design.mdのADR節（「何が壊れるか」「なぜ設計的に妥当か」「移行方法」）が破壊的変更ポリシーの要件を満たしていることを確認する
-- [ ] 4.3 issue #23 へ完了コメントを投稿しクローズする（PRマージ後）
-- [ ] 4.4 統括issue #19 のW6-4（#23）チェックボックスを更新する（PRマージ後）
+- [x] 4.3 issue #23 へ完了コメントを投稿しクローズする（PRマージ後）
+- [x] 4.4 統括issue #19 のW6-4（#23）チェックボックスを更新する（PRマージ後）

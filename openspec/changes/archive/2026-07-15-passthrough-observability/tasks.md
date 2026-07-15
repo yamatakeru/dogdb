@@ -46,5 +46,5 @@
 ## 8. 検証とGitHub連携
 
 - [x] 8.1 `openspec validate passthrough-observability` が通ることを確認する
-- [ ] 8.2 issue #22 へ完了コメントを投稿しクローズする（PRマージ後）
-- [ ] 8.3 統括issue #19 のW6-3チェックボックスを更新する（PRマージ後）
+- [x] 8.2 issue #22 へ完了コメントを投稿しクローズする（PRマージ後）
+- [x] 8.3 統括issue #19 のW6-3チェックボックスを更新する（PRマージ後）
