@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from dogdb.adapters.base import materialize_with_row_cap
+from dogdb.adapters.base import materialize
 from dogdb.core.models import LogicalResult
 
 
@@ -25,7 +25,7 @@ class DuckDBAdapter:
         row_cap: int | None = None,
     ) -> LogicalResult:
         cursor = self.connection.execute(sql, params) if params else self.connection.execute(sql)
-        return materialize_with_row_cap(cursor, row_cap=row_cap)
+        return materialize(cursor, row_cap=row_cap)
 
     def executemany(
         self, sql: str, params: Sequence[Sequence[Any]]

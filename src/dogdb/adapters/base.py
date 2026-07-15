@@ -38,28 +38,16 @@ class Adapter(Protocol):
     def in_transaction(self) -> bool: ...
 
 
-def materialize(cursor: Any) -> LogicalResult:
+def materialize(cursor: Any, *, row_cap: int | None = None) -> LogicalResult:
     description = cursor.description
     if description is None:
         return LogicalResult([], [], getattr(cursor, "rowcount", -1))
     columns = [str(column[0]) for column in description]
     column_types = [column[1] for column in description]
-    rows = [tuple(row) for row in cursor.fetchall()]
-    return LogicalResult(columns, rows, len(rows), column_types)
-
-
-def materialize_with_row_cap(
-    cursor: Any, *, row_cap: int | None = None
-) -> LogicalResult:
     if row_cap is None:
-        return materialize(cursor)
-
-    description = cursor.description
-    if description is None:
-        return LogicalResult([], [], getattr(cursor, "rowcount", -1))
-    columns = [str(column[0]) for column in description]
-    column_types = [column[1] for column in description]
-    rows: list[tuple[Any, ...]] = []
+        rows = [tuple(row) for row in cursor.fetchall()]
+        return LogicalResult(columns, rows, len(rows), column_types)
+    rows = []
     while len(rows) <= row_cap:
         amount = min(_FETCH_CHUNK_SIZE, row_cap + 1 - len(rows))
         batch = cursor.fetchmany(amount)

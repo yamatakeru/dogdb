@@ -7,7 +7,7 @@ import time
 import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NoReturn
 
 from dogdb.adapters.base import Adapter, RowCapExceeded
 from dogdb.adapters.duckdb import DuckDBAdapter
@@ -35,6 +35,12 @@ from dogdb.core.sql import SQLKind, classify_sql
 from dogdb.core.stale_cache import StaleReadCache
 from dogdb.core.stats import StatsTracker
 from dogdb.core.validation import require_positive_int
+
+# on_passthrough="warn"/"error" fire only for these reasons; transaction
+# statements and executemany stay silent in every mode.
+_ENFORCED_PASSTHROUGH_REASONS = frozenset(
+    {"unknown_sql", "named_parameters", "unsupported_parameter_type"}
+)
 
 
 class DollyNamespace:
@@ -242,11 +248,7 @@ class _InterventionEngine:
         return logical_result
 
     def _apply_passthrough_policy(self, reason: str) -> None:
-        if reason not in {
-            "unknown_sql",
-            "named_parameters",
-            "unsupported_parameter_type",
-        }:
+        if reason not in _ENFORCED_PASSTHROUGH_REASONS:
             return
         message = f"DogDB fault injection passthrough: {reason}"
         if self._on_passthrough == "warn":
@@ -296,7 +298,7 @@ class _InterventionEngine:
         parameter: str | Callable[[], str],
         occurrence: int,
         configured: int,
-    ) -> None:
+    ) -> NoReturn:
         decision = self._decisions.decide(
             template=template,
             parameter=parameter,

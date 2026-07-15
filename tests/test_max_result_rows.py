@@ -7,7 +7,7 @@ import duckdb
 import pytest
 
 from dogdb.adapters import DuckDBAdapter, SQLiteAdapter
-from dogdb.adapters.base import RowCapExceeded, materialize_with_row_cap
+from dogdb.adapters.base import RowCapExceeded, materialize
 
 
 class _NoRowsCursor:
@@ -52,7 +52,7 @@ def test_row_cap_limits_each_fetchmany_batch_to_the_remaining_observation_window
     cursor = _TrackingCursor(2_000)
 
     with pytest.raises(RowCapExceeded):
-        materialize_with_row_cap(cursor, row_cap=1_001)
+        materialize(cursor, row_cap=1_001)
 
     assert cursor.fetch_sizes == [1_000, 2]
     assert cursor.offset == 1_002
