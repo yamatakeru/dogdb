@@ -15,7 +15,7 @@ README 132行目は「理由別の匿名素通し件数」を契約として謳�
 - README記述と実装を一致させる。
 
 **Non-Goals:**
-- SQL分類器（`sql.py`）自体の変更・sqlglot導入（W6-1/issue #20の射程）。
+- SQL分類器（`sql.py`）自体の変更（sqlglot導入はW6-1/issue #20でマージ済み）。
 - 素通し対象範囲（5理由の分類ロジック）自体の拡大・縮小。
 - `POLICY_VERSION` の変更（決定キー・イベント系列導出は本changeで一切変えない — 素通し操作は現行もdecision・eventを生成しないため、record-then-raiseの経路を新設しても導出系列に影響しない前提。この前提はDecisionsで確認する）。
 - `transaction_statement`／`executemany` を発火対象に追加するオプション（issueで対象外と確定済み）。

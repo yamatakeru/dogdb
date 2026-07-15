@@ -28,7 +28,7 @@
 ## 5. 検証
 
 - [ ] 5.1 `openspec validate --change duckdb-extras-sqlite-default`（形式が異なる場合は `openspec validate duckdb-extras-sqlite-default`）を実行しエラーがないことを確認する
-- [ ] 5.2 pyprojectの依存節がW6-1（sqlglot追加）とコンフリクトしうる旨をPR説明に明記する（本change内では解消しない。解消はwave集約時に親が実施——統括issue #19）
+- [ ] 5.2 duckdb除去後の `[project] dependencies` にsqlglot（W6-1でマージ済み）が維持されていることを差分で確認する
 
 ## 6. GitHub連携
 

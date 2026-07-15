@@ -16,17 +16,17 @@
 **Non-Goals:**
 
 - `wrap()`の挙動変更。`wrap()`は渡された接続オブジェクトのモジュール名から検出するため「既定バックエンド」という概念を持たず、対象外。
-- sqlglot追加・fingerprint正規化・POLICY_VERSION更新（W6-1）。POLICY_VERSIONは本changeでは変更しない。
+- sqlglot追加・fingerprint正規化・POLICY_VERSION更新（W6-1でmainへマージ済み）。POLICY_VERSIONは本changeでは変更しない。
 - duckdb抜き環境のCIマトリクス新設。リポジトリにCIは存在しないため作らない。将来CI導入時の検証項目としてのみ本文書に記す。
 - `_adapter_for`・`src/dogdb/adapters/__init__.py`・`DuckDBAdapter`本体の変更。いずれも`duckdb`をimportしないため、遅延import化の対象にならない（D3参照）。
 
 ## Decisions
 
-### D1: pyprojectの構成は本体`dependencies`を空にし、duckdbのみ`optional-dependencies`へ
+### D1: 本体`dependencies`からduckdbのみを除去し、duckdbは`optional-dependencies`へ
 
-`dependencies = []`（明示的に空リスト）、`[project.optional-dependencies] duckdb = ["duckdb"]`、`[dependency-groups] dev = ["pytest", "duckdb"]`とする。バージョン指定は現状の`dependencies = ["duckdb"]`が無指定だったことに合わせ、追加しない。
+`dependencies = ["sqlglot>=30.12.0,<31"]`（W6-1で追加されたsqlglotを維持しduckdbのみ除去）、`[project.optional-dependencies] duckdb = ["duckdb"]`、`[dependency-groups] dev = ["pytest", "duckdb"]`とする。duckdbのバージョン指定は現状の`dependencies`エントリが無指定だったことに合わせ、追加しない。
 
-sqlglotの追加は本changeの範囲外（W6-1）であり、`dependencies`を空にした状態が本changeとして自己完結する。統括issue #19が明記するとおり、W6-1と同時実装した場合の最終的な`dependencies`節の統合はwave集約時に親が行う。
+sqlglotの追加はW6-1で実施されmainへマージ済みであり、本changeは`dependencies`からduckdbのみを除去する。除去後の`dependencies`にsqlglotが残ることが本changeの完了形である。
 
 ### D2: `connect()`の既定値のみ変更し、`wrap()`は変更しない
 
@@ -56,18 +56,18 @@ issue #21の指示（「クイックスタート直前にインストール行�
 
 ## Risks / Trade-offs
 
-- [pyprojectの依存節がW6-1（sqlglot追加）と同一worktree外で独立編集され、wave集約時にコンフリクトする] → 統括issue #19の合意どおり、コンフリクト解消はwave集約時に親が行う。本change単体は`dependencies = []`で自己完結し、単独でも`openspec validate`・テストが通る状態を保つ。
+- [pyprojectの依存節がW6-1（sqlglot追加）とコンフリクトする] → W6-1が先行してmainへマージされたため解消済み。本changeはマージ後のmainを基点に`dependencies`からduckdbのみを除去し、単独でも`openspec validate`・テストが通る状態を保つ。
 - [`connect()`の既定変更に気づかない呼び出し側が、意図せずSQLiteへ接続する] → 未リリースのため外部利用者はゼロで実害は生じない。ADR節・README・docstringで明示し、破壊的変更ポリシー（タグ前は通常の選択肢）に従う。
 - [duckdb未導入環境の検証がCIで自動化されない] → `sys.modules`monkeypatchによるテストをリポジトリに常置し、ローカル・将来CI導入時のいずれでも実行可能にする。
 
 ## Migration Plan
 
-1. `pyproject.toml`: `dependencies`からduckdbを除去し空リストにする、`[project.optional-dependencies] duckdb = ["duckdb"]`を追加する、`dev` groupへduckdbを追加する。
+1. `pyproject.toml`: `dependencies`からduckdbを除去する（W6-1で追加されたsqlglotは維持する）、`[project.optional-dependencies] duckdb = ["duckdb"]`を追加する、`dev` groupへduckdbを追加する。
 2. `src/dogdb/proxy/connection.py`: `connect()`の`backend`既定値を`"sqlite"`へ変更し、`import duckdb`を`try/except ImportError`で囲んでchain付き案内`ImportError`を送出する。`connect()`へ既定値を明記するdocstringを追加する。
 3. `README.md`: D6の3箇所を更新する。
 4. テスト: `sys.modules`monkeypatchによる2種のテスト（duckdb不在での`import dogdb`＋SQLite経路、`backend="duckdb"`の案内付き`ImportError`）と、ImportErrorメッセージに`pip install "dogdb[duckdb]"`が含まれることを検証するテストを追加する。
 5. 既存テストを全て実行し従来どおり通過することを確認する。`openspec validate`を通す。
-6. wave集約時: W6-1の`pyproject.toml`差分（sqlglot追加）と本changeの差分（duckdb除去・extras化）を親が統合し、統合後に全テストと全changeの`openspec validate`を再実行する。
+6. wave集約時: 統合後に全テストと全changeの`openspec validate`を再実行する（W6-1はmainへマージ済みのため、`pyproject.toml`のchange間差分統合は不要）。
 
 ロールバックは単一PRのrevertで完結する（データ移行なし、影響ファイルは`pyproject.toml`・`connection.py`・`README.md`・テストのみ）。
 

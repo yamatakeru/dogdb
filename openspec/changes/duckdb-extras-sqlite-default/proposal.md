@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- duckdbを`[project.optional-dependencies] duckdb = ["duckdb"]`へ移し、本体`dependencies`からduckdbを外す（sqlglot追加はW6-1の範囲であり、pyproject依存節の最終統合はwave集約時に親が行う）。
+- duckdbを`[project.optional-dependencies] duckdb = ["duckdb"]`へ移し、本体`dependencies`からduckdbを外す（W6-1で追加されmainへマージ済みのsqlglotは通常依存として維持する）。
 - **BREAKING**: `dogdb.connect()`の既定`backend`を`"duckdb"`から`"sqlite"`へ変更する。判断根拠: 未リリースにつき既存コード破壊の前提が不在であり、既定は素のインストール（extras無し）で常に動くべきという原則を優先する。design.mdにADR節を設ける。
 - `connect(..., backend="duckdb")`実行時にduckdb未導入だった場合、元の`ImportError`をchainした明瞭な`ImportError`を送出し、メッセージに`pip install "dogdb[duckdb]"`を明記する。
 - dev dependency groupへduckdbを明示追加する（`dev = ["pytest", "duckdb"]`）。既存テストは全て従来どおり実行する。
@@ -13,7 +13,7 @@
 
 ### Non-goals
 
-- sqlglotの追加、fingerprint正規化、POLICY_VERSION更新（W6-1の範囲）。POLICY_VERSIONはこのchangeでは触らない。
+- sqlglotの追加、fingerprint正規化、POLICY_VERSION更新（W6-1でmainへマージ済み）。POLICY_VERSIONはこのchangeでは触らない。
 - リポジトリにCIが存在しないため、duckdb抜き環境のCIマトリクスは作らない。将来CI導入時の検証項目としてのみdesign.mdに記す。
 - `wrap()`（既存接続を包む経路）の既定バックエンド選択は対象外。`wrap()`は接続オブジェクトのモジュール名から検出するため既定値の概念がなく、変更しない。
 
@@ -33,4 +33,4 @@
 - **テスト**: duckdb未導入相当を`sys.modules`monkeypatchで再現する新規テスト2種、およびImportError案内メッセージのテスト。既存テストは変更なしで全て通過する想定。
 - **文書**: `README.md`（インストール行追加、既定バックエンド表記の全数更新）、`connect()`のdocstring（既定値を明記）。
 - **利用者影響**: `dogdb.connect(path, seed=...)`を`backend`省略で呼んでいた既存コード（未リリースのため外部利用者はゼロ）は、既定の接続先がDuckDBからSQLiteへ変わる（**BREAKING**）。`wrap()`経由の利用や`backend`を明示指定していた呼び出しは影響を受けない。
-- **依存関係**: `pyproject.toml`の`dependencies`節はW6-1（sqlglot追加）と同一箇所を触りうる。コンフリクト解消はwave集約時に親が行う（統括issue #19）。
+- **依存関係**: W6-1（sqlglot追加）はmainへマージ済みのため、`dependencies`節のchange間コンフリクトの前提は解消済み。duckdb除去後の`dependencies`は`sqlglot`のみとなる。

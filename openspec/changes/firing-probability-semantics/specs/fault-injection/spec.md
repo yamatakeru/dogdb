@@ -9,7 +9,7 @@
 
 #### Scenario: 対象テーブルを絞る
 - **WHEN** `only_tables=["orders"]` を指定し、`orders` と `users` へのSELECTを実行する
-- **THEN** 障害は `orders` への文にのみ発火し得て、テーブル名を抽出できないCTE文には発火しない
+- **THEN** 障害は `orders` への文にのみ発火し得て、テーブル名を抽出できない複文には発火しない
 
 ### Requirement: 1操作1 fault と優先順位
 1回の操作で適用される障害は最大1つでなければならない（MUST）。評価はphase順に行い、`before_execute` で failure injection（BARK、GUARD_BOWL、IGNORE）が発火した場合、文を実行してはならない（MUST NOT）。SLOTHは `before_execute` で発火しても遅延後に実行を継続し、その操作のfault枠を消費する（SHALL）。`on_result` の候補は、契約文書に記載された固定の全順序 — failure injection（NO_DROP、STASHエラーモード）、形状変異（STASH行欠落、FALSE_EMPTY、TAIL_CHASE、PAGE_HOLE、ECHO、SHUFFLE）、値変異（TANGLED_LEASH、CHEW、WRONG_COUNT）、状態系（OLD_BONE）の順 — で評価し、最初に発火した1つだけを適用しなければならない（SHALL）。前提条件を満たさない障害は発火候補になってはならない（MUST NOT）。
