@@ -86,6 +86,17 @@ def test_v4_normalization_still_lowercases_quoted_identifiers():
     )
 
 
+def test_v4_normalization_protects_quoted_identifier_contents():
+    assert normalize_sql('SELECT "A--B", "C/*D*/E" FROM t') == (
+        'select "a--b", "c/*d*/e" from t'
+    )
+    assert normalize_sql("SELECT \"dog's\" FROM t") == "select \"dog's\" from t"
+    assert normalize_sql('SELECT "Say ""Hi""" FROM t') == (
+        'select "say ""hi""" from t'
+    )
+    assert normalize_sql('SELECT "my  col" FROM t') == 'select "my  col" from t'
+
+
 def test_changing_uuid_params_does_not_change_default_decision():
     keys = []
     for value in (uuid.uuid4(), uuid.uuid4()):

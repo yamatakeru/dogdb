@@ -98,6 +98,8 @@ def test_backends_use_identical_generic_dialect_classification(monkeypatch):
         "select id from t union select id from t order by id",
     )
     observed = []
+    expected = [classify_sql(sql) for sql in sql_statements]
+    assert [c.kind.value for c in expected] == ["select", "select"]
 
     for backend in ("duckdb", "sqlite"):
         classifications = []
@@ -113,7 +115,7 @@ def test_backends_use_identical_generic_dialect_classification(monkeypatch):
             conn.execute(sql).fetchall()
         observed.append(classifications)
 
-    assert observed[0] == observed[1]
+    assert observed == [expected, expected]
 
 
 @pytest.mark.parametrize("backend", ["duckdb", "sqlite"])

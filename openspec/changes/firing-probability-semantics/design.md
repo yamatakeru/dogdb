@@ -56,6 +56,6 @@
 5. `grep -rn fault_probabilities tests examples` が空であることを再確認する（既に空を確認済みのため、実装時の変更は不要）。
 6. 全テスト実行、`openspec validate` 通過を確認する。ロールバックは単一PRのrevertで完結する（データ移行なし、`POLICY_VERSION`不変）。
 
-## Open Questions
+## Resolved Questions
 
 - **近似式 `p_i × Π(1−p_j)` の `j` の範囲**: issue #23の原文は「後順位の観測発生率は概算 `p_i × Π(1−p_j)` に遮蔽される」とのみ述べ、`j` が「固定全順序表の全ての先順位fault」を指すのか、「同一操作で前提条件・スコープ（`only_tables`/`exclude_tables`、SQL分類、rowcount等）を満たし実際に候補となった先順位faultに限る」のかを明示していない。コード上は `select_candidate` が事前にフィルタ済みの `candidates` 集合のみを評価するため、後者（候補集合内の先順位のみ）が実装と整合する。本changeでは最小スコープとしてこの限定を明示する文言（「同一操作で候補となる先順位のfaultについて」）を採用した。→ **確定（統括レビュー、2026-07-15）**: この解釈（候補集合内の先順位に限る）で確定する。`select_candidate` の実装意味論と一致し、READMEに載せる近似式の説明としても観測発生率に最も近い。

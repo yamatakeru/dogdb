@@ -85,5 +85,5 @@
 - **THEN** 例外は送出されず、全行が挿入される
 
 #### Scenario: errorでもトランザクション文は素通しされる
-- **WHEN** `on_passthrough="error"` のプロキシで `BEGIN` を実行してからINSERTし `commit()` する
+- **WHEN** `on_passthrough="error"` かつ全障害の発火確率0のプロキシで `BEGIN` を実行してからINSERTし `commit()` する
 - **THEN** 例外は送出されず、データは永続化される

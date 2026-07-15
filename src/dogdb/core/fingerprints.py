@@ -33,21 +33,23 @@ def normalize_sql(sql: str) -> str:
 
     normalized: list[str] = []
     pending_space = False
-    in_literal = False
+    quote: str | None = None
     index = 0
 
     while index < len(sql):
         char = sql[index]
         next_char = sql[index + 1] if index + 1 < len(sql) else ""
 
-        if in_literal:
-            normalized.append(char)
-            if char == "'":
-                if next_char == "'":
-                    normalized.append(next_char)
+        if quote is not None:
+            normalized.append(char if quote == "'" else char.lower())
+            if char == quote:
+                if next_char == quote:
+                    normalized.append(
+                        next_char if quote == "'" else next_char.lower()
+                    )
                     index += 2
                     continue
-                in_literal = False
+                quote = None
             index += 1
             continue
 
@@ -74,8 +76,8 @@ def normalize_sql(sql: str) -> str:
         if pending_space:
             normalized.append(" ")
             pending_space = False
-        if char == "'":
-            in_literal = True
+        if char in ("'", '"'):
+            quote = char
             normalized.append(char)
         else:
             normalized.append(char.lower())

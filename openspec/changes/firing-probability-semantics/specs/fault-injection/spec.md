@@ -14,7 +14,7 @@
 ### Requirement: 1操作1 fault と優先順位
 1回の操作で適用される障害は最大1つでなければならない（MUST）。評価はphase順に行い、`before_execute` で failure injection（BARK、GUARD_BOWL、IGNORE）が発火した場合、文を実行してはならない（MUST NOT）。SLOTHは `before_execute` で発火しても遅延後に実行を継続し、その操作のfault枠を消費する（SHALL）。`on_result` の候補は、契約文書に記載された固定の全順序 — failure injection（NO_DROP、STASHエラーモード）、形状変異（STASH行欠落、FALSE_EMPTY、TAIL_CHASE、PAGE_HOLE、ECHO、SHUFFLE）、値変異（TANGLED_LEASH、CHEW、WRONG_COUNT）、状態系（OLD_BONE）の順 — で評価し、最初に発火した1つだけを適用しなければならない（SHALL）。前提条件を満たさない障害は発火候補になってはならない（MUST NOT）。
 
-この先勝ちによる排他適用の帰結として、後順位のfaultが実際に適用される頻度（観測発生率）は、設定した発火確率 `p_i` そのものとは一致しない（SHALL）。同一操作で候補となる（前提条件・スコープを満たす）先順位のfaultをそれぞれ `j` としたとき、後順位fault `i` の観測発生率は概算 `p_i × Π(1−p_j)` に遮蔽される（SHALL）。この近似式は契約文書とREADMEに明記しなければならない（SHALL）。
+この先勝ちによる排他適用の帰結として、後順位のfaultが実際に適用される頻度（観測発生率）は、設定した発火確率 `p_i` そのものとは一致しない（SHALL）。同一操作で候補となる（前提条件・スコープを満たす）先順位のfaultをそれぞれ `j` としたとき、後順位fault `i` の観測発生率は概算 `p_i × Π(1−p_j)` に遮蔽される（SHALL）。この `p_i`・`p_j` はmood倍率適用後の実効発火確率であり、mood無効時は設定した発火確率に等しい（SHALL）。この近似式は契約文書とREADMEに明記しなければならない（SHALL）。
 
 #### Scenario: 候補が競合しても1つだけ
 - **WHEN** 同一操作でIGNOREとSHUFFLEの両方が発火候補になる

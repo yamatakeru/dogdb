@@ -126,8 +126,8 @@ CTE・UNIONがSELECT分類の対象へ拡張されたことで、これらの文
 
 **移行方法**: 旧決定値列の再現が必要な場合は、当該バージョン（policy v3を含む最後のリリース以前）のdogdbで再生成する。リポジトリ内の唯一の依存物（golden fixture）は本change内でv4基準線へ再生成する。`docs/contract-v1.md`・`docs/contract-v2.md`は歴史的文書としての失効注記を追加し、削除しない。
 
-## Open Questions
+## Resolved Questions
 
 - **CTE/UNIONに対する`_from_tables`相当のテーブル名抽出の具体的な結果**: issueは「同一意味論で再実装」とのみ規定し、CTE本体内部（`WITH cte AS (SELECT ... FROM real_table) SELECT * FROM cte`のような入れ子）でどのテーブル名を抽出すべきか（外側の`cte`エイリアスのみか、内部の`real_table`まで辿るか、あるいは抽出不能として`None`を返すか）を明記していない。既存の`_from_tables`は深さ0（括弧の外）のトークンのみを見る非再帰的な実装であり、「同一意味論」を字義通り適用するなら外側のFROM句のみを見て`cte`エイリアスを返す（内部へは辿らない）実装が候補になる。→ **確定（統括レビュー、2026-07-15）**: CTEエイリアス名ではなく、CTE本体内部で参照される実テーブルを含む実テーブル集合（エイリアス名は除外）を抽出する。エイリアス名を返す案は、利用者がスコープに指定するのは実テーブル名であるため `only_tables`/`exclude_tables` を構造的に空振りさせ、同名の実テーブルへの誤マッチも起こしうるため棄却。入れ子等の境界の詳細は実装時にテストで固定する。
 - **UNION/EXCEPT/INTERSECTに対する`_from_tables`相当・`top_level_limit`/`top_level_offset`相当の扱い**: 複数の`SELECT`分岐が並ぶ文で「トップレベルのFROM」「トップレベルのLIMIT/OFFSET」が一意に定まらない場合（例: `SELECT * FROM a UNION SELECT * FROM b LIMIT 10`）の抽出規則もissueに明記がない。contract-v2.mdの既存原則（「保守的に抽出できた」もののみ対象、抽出不能文は`only_tables`指定時は対象外・`exclude_tables`指定時は対象）を延長し、複数分岐にまたがり一意に定まらない場合は抽出不能（`None`）として扱う案が保守的分類の原則に沿う。→ **方針確定（統括レビュー、2026-07-15）**: この保守的`None`案を採用し、具体的な境界は実装時にテストで固定する。
-- **golden fixtureとテストファイルの命名**: `policy-v3-derivation-cleanup`の前例（`tests/fixtures/policy_v3_golden.json`、`tests/test_policy_regression.py`）に倣い`policy_v4_golden.json`等へ改名する想定だが、正式名称はtasks実装時に確定する。
+- **golden fixtureとテストファイルの命名**: `policy-v3-derivation-cleanup`の前例（`tests/fixtures/policy_v3_golden.json`、`tests/test_policy_regression.py`）に倣い`policy_v4_golden.json`等へ改名する想定だが、正式名称はtasks実装時に確定する。→ **解消（実装、2026-07-15）**: `tests/fixtures/policy_v4_golden.json` へ再生成し、テストファイルは既存の `tests/test_policy_regression.py` の名前を維持した。
