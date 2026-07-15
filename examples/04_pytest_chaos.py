@@ -2,6 +2,7 @@
 
 import sqlite3
 from collections.abc import Iterator
+from typing import cast
 
 import dogdb
 import pytest
@@ -22,7 +23,8 @@ def conn() -> Iterator[SQLiteProxy]:
         # テストでは必ず STASH し、耐障害処理を確実に通す。
         faults={"STASH": 1.0},
     )
-    yield wrapped
+    # wrap() の返り値型はバックエンド横断の union なので、SQLite 前提の本例では絞り込む。
+    yield cast(SQLiteProxy, wrapped)
     wrapped.close()
 
 
