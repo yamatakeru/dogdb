@@ -9,7 +9,7 @@ import dogdb
 
 
 FIXTURE = json.loads(
-    (Path(__file__).parent / "fixtures" / "policy_v3_golden.json").read_text()
+    (Path(__file__).parent / "fixtures" / "policy_v4_golden.json").read_text()
 )
 
 

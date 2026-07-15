@@ -1,6 +1,6 @@
 ## 1. パッケージング
 
-- [ ] 1.1 `pyproject.toml`: `[project] dependencies` からduckdbを除去し、`dependencies = []` にする
+- [ ] 1.1 `pyproject.toml`: `[project] dependencies` からduckdbのみを除去する（W6-1で追加されたsqlglot等、他の通常依存は維持する）
 - [ ] 1.2 `pyproject.toml`: `[project.optional-dependencies] duckdb = ["duckdb"]` を追加する
 - [ ] 1.3 `pyproject.toml`: `[dependency-groups] dev` を `dev = ["pytest", "duckdb"]` へ更新する
 

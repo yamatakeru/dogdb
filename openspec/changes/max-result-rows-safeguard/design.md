@@ -46,11 +46,13 @@ issue本文は`row_cap`適用範囲（全操作か、分類・スコープ済み
 
 **採用**: `DecisionEngine.decide(phase="on_result", ...)`（seed・session・template・occurrence・phaseからのSHA-256導出のみで、確率的なfault選択を伴わない純粋関数）は呼び出し、その`Decision`を`limit_exceeded`イベントの`decision_key`等の構築にのみ用いる。`FaultEngine.on_result`（fault候補選択と、発火なし時に`decision_evaluated`を記録する`_debug_decision`フォールバック）は一切呼び出さない。これにより「`decision_evaluated`は出ない」という決定済み意味論と、「`limit_exceeded`は契約上の必須フィールドを満たす」という既存契約の両方を満たす。
 
-この区別（decision keyの導出 ≠ on_resultのfault評価）はissue本文が明示的に述べたものではなく、既存契約の必須フィールド表から逆算した設計解釈である。「未解決の疑問」に記載する。
+この区別（decision keyの導出 ≠ on_resultのfault評価）はissue本文が明示的に述べたものではなく、既存契約の必須フィールド表から逆算した設計解釈である（統括レビュー2026-07-15で既存コードとの突合により確定——「未解決の疑問」参照）。
+
+実装順序は次のとおりとする: ①`before_execute`評価（既存経路のまま。BARK等はここで先行発火し得る）→②`row_cap`付きアダプタ読み取り→③中断シグナル受領時、mood・自動返却の論理時計を通常経路と同一のフックで前進→④中断した操作のoccurrence消費とdecision導出は既存の`max_intervention_rows`超過経路と同一の規則に従い（二重消費なし）、そのDecisionから`limit_exceeded`を構築・記録→⑤`DollyLimitError`送出。`FaultEngine.on_result`は呼ばず、`decision_evaluated`は生成されない。③〜⑤（時計前進・`decision_evaluated`非生成・イベント→例外の順序）はテストで検証する（受け入れ基準の対応項目に含まれる）。
 
 ### D4: fetchmanyのバッチサイズは実装時の裁量とする
 
-アダプタは`row_cap`指定時、`cursor.fetchmany(n)`を`row_cap+1`行を観測するまで繰り返し、観測した時点で即座に中断する。バッチサイズ`n`は観測可能な契約（中断行数・イベント内容）に影響しないため、実装時に選択してよい実装詳細とする（例: `min(row_cap + 1, 適当なチャンクサイズ)`）。
+アダプタは`row_cap`指定時、`cursor.fetchmany(n)`を`row_cap+1`行を観測するまで繰り返し、観測した時点で即座に中断する。各回のバッチサイズ`n`は残り取得枠に制限する（`n = min(チャンクサイズ, row_cap + 1 − 取得済み行数)`）。これにより`row_cap+1`行を超える行をmaterializeせず、spec「それ以降の行を取得してはならない（MUST NOT）」を1バッチの粒度でも満たす。チャンクサイズ自体は観測可能な契約に影響しない実装詳細とする。境界ケース（結果行数が`row_cap`・`row_cap+1`・バッチ境界と一致する場合）はテストで固定する。
 
 ### D5: fault-injection specへのdelta追加は不要
 

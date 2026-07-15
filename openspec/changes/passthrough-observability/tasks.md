@@ -1,7 +1,7 @@
 ## 1. 設計判断の確定（実装着手前）
 
-- [ ] 1.1 design.mdのOpen Question 1（`DollyPassthroughError` が `DogDBError` を継承するか、継承する場合の `event_id` の扱い）を確定する。必要なら `/opsx:update` で design.md／specs を更新してから後続タスクに着手する
-- [ ] 1.2 design.mdのOpen Question 2（複数の素通し理由に同時該当する操作の理由決定の優先順位）を確定する。最小コストの案（既存の早期return条件の評価順を理由決定の優先順位として採用）を採否含めて決定し、決定内容をコード中のコメントとテストで固定する
+- [ ] 1.1 design.mdで確定済みの設計判断（統括レビュー2026-07-15: `DollyPassthroughError` は `DogDBError` を継承しない独立例外とし、契約上の必須属性は読み取り専用の `retryable`（`False` 固定）のみ）を実装の前提として確認する（specsは意図的にこの点へ沈黙しており変更不要）
+- [ ] 1.2 design.mdで確定済みの理由決定の優先順位（統括レビュー2026-07-15: 既存の早期return条件の評価順 `named_parameters` → `unknown_sql` → `transaction_statement` → `unsupported_parameter_type`）をコード中のコメントとテストで固定する（spec本文は重複時の挙動へ意図的に沈黙しており変更不要）
 
 ## 2. 素通し理由5種の記録
 
@@ -13,7 +13,7 @@
 ## 3. on_passthroughの受け付けと発火対象の限定
 
 - [ ] 3.1 `src/dogdb/proxy/connection.py` の `wrap()` に省略可能な引数 `on_passthrough: str = "allow"` を追加し、`"allow"` / `"warn"` / `"error"` 以外は明示的な設定エラー（`ValueError`）を送出するようにする
-- [ ] 3.2 `on_passthrough` を `_InterventionEngine` へ伝搬する経路を実装する（1.1の設計判断に従い、`FaultPolicy` に含めるか独立フィールドにするか決定する）
+- [ ] 3.2 `on_passthrough` を `_InterventionEngine` へ伝搬する経路を実装する（`FaultPolicy` に含めるか独立フィールドにするかは、決定性・イベント導出に影響しない実装詳細として実装時に決定し、選択理由をコードコメントに残す）
 - [ ] 3.3 発火対象を `unknown_sql`・`named_parameters`・`unsupported_parameter_type` の3種に固定し、`transaction_statement`・`executemany` は `on_passthrough` の値に関わらず常に無警告・無エラーで素通しするよう分岐を実装する
 
 ## 4. warnモード
@@ -31,7 +31,7 @@
 ## 6. テスト
 
 - [ ] 6.1 5理由すべての記録テストを追加する（`named_parameters`・`unknown_sql`・`transaction_statement`・`executemany` の新規4種、および既存 `unsupported_parameter_type` の回帰確認）。実行: `uv run pytest tests/ -k passthrough`
-- [ ] 6.2 `on_passthrough` 3モード（`allow`／`warn`／`error`）のテストを追加する: 発火対象3種それぞれで期待どおり発火し（`warn`は`DollyPassthroughWarning`、`error`は`DollyPassthroughError`）、対象外2種（`transaction_statement`・`executemany`）ではいずれのモードでも発火しないこと
+- [ ] 6.2 `on_passthrough` 3モード（`allow`／`warn`／`error`）のテストを追加する: 発火対象3種それぞれで期待どおり発火し（`warn`は`DollyPassthroughWarning`、`error`は`DollyPassthroughError`）、対象外2種（`transaction_statement`・`executemany`）ではいずれのモードでも発火しないこと。加えて、`on_passthrough` 省略時が `allow` 指定時と同一挙動（警告・例外なしの素通し）であることを検証する
 - [ ] 6.3 `on_passthrough="error"` がバックエンド実行前に送出されること（文がバックエンドに到達しないこと）を、副作用が観測可能な操作（例: INSERT後の行数不変）で検証するテストを追加する
 - [ ] 6.4 `on_passthrough` の未知の値を渡した場合に設定エラーになることのテストを追加する
 - [ ] 6.5 `conn.dolly.stats()` のsnapshot後方互換テストを追加する: 本change導入前後で、素通しを伴わない操作列に対する既存キー・値が変わらないこと
@@ -41,7 +41,7 @@
 
 - [ ] 7.1 `README.md` 132行付近の「理由別の匿名素通し件数」記述を実装と一致させ、素通し理由の正規語彙表（5種、理由キーと発生箇所）を追記する
 - [ ] 7.2 `README.md` に `on_passthrough`（既定 `"allow"`、`"warn"`／`"error"`、発火対象3種・除外2種）の説明を追記する
-- [ ] 7.3 `docs/contract-v2.md` に該当する記述があれば、素通し理由の語彙とstats後方互換の注記を更新する
+- [ ] 7.3 `docs/contract-v2.md` を点検し、素通し理由の正規語彙5種とstats snapshotの後方互換（キー追加のみ）の注記を追加・更新する（READMEの変更と整合させる。該当記述の有無に関わらず点検の完了をタスク完了条件とする）
 
 ## 8. 検証とGitHub連携
 

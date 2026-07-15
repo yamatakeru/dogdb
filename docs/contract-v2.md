@@ -4,7 +4,9 @@
 
 ## 決定関数と fingerprint
 
-`decision_key`、SQL template fingerprint、parameter fingerprint の定義は contract v1 を継承する。`POLICY_VERSION` は `dogdb-v3:normalize=trim+collapse-whitespace+lowercase` である。決定性の保証単位は、同一 seed、明示した同一 session ID、同一設定、およびセッション先頭からの同一の順序付き入力列である。部分 replay の一致は保証しない。
+`decision_key`、SQL template fingerprint、parameter fingerprint の定義は contract v1 を継承する。`POLICY_VERSION` は `dogdb-v4:normalize=trim+collapse-whitespace+lowercase-outside-literals+strip-comments` である。決定性の保証単位は、同一 seed、明示した同一 session ID、同一設定、セッション先頭からの同一の順序付き入力列、および同一バージョンの分類器実装（sqlglot）である。部分 replay の一致、および異なるsqlglotバージョン間でのdecision・イベント列の一致は保証しない。CIとgolden fixtureでは`uv.lock`が固定するsqlglotバージョンを使う。
+
+SQL template fingerprintのv4正規化は、単一の左から右への走査で単一引用符文字列リテラル・引用識別子（`"..."`）・コメントの境界を判定する。単一引用符文字列では`''`をエスケープされた引用符として扱い、クォート文字を含むリテラル全体を変更しない。リテラル外で開始した`--`行コメントと`/* */`ブロックコメントは除去し、コメント内のアポストロフィをリテラル開始と解釈しない。除去位置は空白と同様に扱い、コメントの除去によって隣接するトークンを結合しない。リテラル内の`--`と`/* */`はコメントとして扱わない。リテラル・引用識別子・コメント外に限り、先頭末尾のUnicode whitespace除去、連続whitespaceの単一ASCII空白化、Unicode lowercase変換を適用する。引用識別子（`"..."`）は境界を認識し、内容にはlowercase変換のみを適用する（`""`はエスケープされた引用符として扱い、内部の空白・コメント記号・アポストロフィは特別扱いしない）。`$$…$$`など、単一引用符文字列と`--`・`/* */`以外の方言的クォーティングは認識せず、通常のSQLテキストとして扱う。正規化結果をUTF-8 bytesへ変換し、SHA-256を取る。
 
 parameter fingerprint の入力域は、JSONネイティブのscalar値と、厳密な型一致による `bytes`、`bytearray`、`datetime.date`、`datetime.time`、`datetime.datetime`、`Decimal`、`UUID` に閉じる。サブクラスや独自型を含む入力域外の位置パラメータ操作は、fingerprint、decision、event、occurrenceを生成せずバックエンドへ素通しする。素通し操作でもmood／自動返却の論理時計は1操作として進める。発生数は `dolly.stats()["passthrough"]["unsupported_parameter_type"]` に記録し、生パラメータ、型名、reprを統計へ含めてはならない。将来この操作を障害注入対象にする場合は、occurrenceとreplay系列が変わるため、`POLICY_VERSION` 更新の要否を判断しなければならない。
 
@@ -65,6 +67,8 @@ decision key の導出入力には加えない。taxonomy の追加によって
 | 16 | `on_result` | `state` | `silent_corruption` | OLD_BONE |
 
 `before_execute` の failure injection が発火した場合は backend を実行しない。SLOTH は遅延後に backend 実行を続けるが、その操作の fault 枠を消費する。`on_result` は backend 実行後に評価する。STASH はエラーモードと行欠落モードが別個の評価候補（order 6・7）だが、TAIL_CHASE は単一の評価候補（order 9）であり、モードは適用時の効果と分類のみを分ける。
+
+`INSERT`／`UPDATE ... RETURNING`は現行分類ではOTHERであり、返却行へ`on_result`介入を行わない。RETURNING行への介入は将来の拡張候補であるが、この注記は非規範的であり、現行実装へ介入を要求しない。
 
 `category` は侵される対象を表し、`failure_injection`、`temporal`、`shape`、
 `value`、`state` の5値に閉じる。`severity` は観測形態を表し、`error`、
@@ -160,6 +164,6 @@ rowcount = cursor.rowcount
 
 ## SQL、scope、backend の境界
 
-core は backend ライブラリを import してはならず、backend 由来の例外を変換してはならない。DogDB はSQLを書き換えず、分類済み操作の論理結果だけを加工する。
+core は backend ライブラリを import してはならず、backend 由来の例外を変換してはならない。DogDB はSQLを書き換えず、分類済み操作の論理結果だけを加工する。SQL分類器は全バックエンドでsqlglotの方言中立（generic）parseを使う。CTE（`WITH ... SELECT`）とUNION／EXCEPT／INTERSECTはSELECTとして扱う。複文、PRAGMA、EXPLAIN、parse失敗、分類不能なASTノードはUNKNOWNとして素通しし、分類器の例外を利用者へ伝播させない。
 
-`only_tables` / `exclude_tables` は保守的に抽出できたトップレベル `FROM` のテーブル名へ適用する。抽出不能文は `only_tables` 指定時は対象外、`exclude_tables` 指定時は対象とする。両方のscopeを同時に指定してはならない。scope、イベント、統計へ生SQLや生パラメータを保持してはならない。
+`only_tables` / `exclude_tables` は保守的に抽出できた実テーブル名へ適用する。単純SELECTではトップレベル`FROM`／`JOIN`を対象とする。CTEではエイリアス名を除外し、CTE本体内部で参照される実テーブルを含める。UNION／EXCEPT／INTERSECTの複数分岐や派生表など、集合が一意に定まらない文は抽出不能とする。抽出不能文は `only_tables` 指定時は対象外、`exclude_tables` 指定時は対象とする。両方のscopeを同時に指定してはならない。scope、イベント、統計へ生SQLや生パラメータを保持してはならない。

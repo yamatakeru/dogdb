@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 文型別の分類境界
-SQL分類器は、次の境界に従って文型を分類しなければならない（MUST）。CTE（`WITH ... SELECT`）、およびORDER BYの有無を問わずUNION・EXCEPT・INTERSECTによる集合演算はSELECTとして分類しなければならない（SHALL）。`INSERT`/`UPDATE ... RETURNING`はOTHERとして分類しなければならない（SHALL）——RETURNING行への`on_result`介入は将来の拡張候補として契約文書に明記するにとどめ、本要件は現時点でその介入を要求しない。複文（`;`区切りで2文以上を含む入力）、PRAGMA、EXPLAIN、およびparseに失敗した文または分類器が意味を判定できないASTノードはUNKNOWNとして分類しなければならない（SHALL）。分類器は分類不能な入力に対して例外を送出してはならず（MUST NOT）、常にUNKNOWNへfall backしなければならない（MUST）。
+SQL分類器は、次の境界に従って文型を分類しなければならない（MUST）。CTE（`WITH ... SELECT`）、およびORDER BYの有無を問わずUNION・EXCEPT・INTERSECTによる集合演算はSELECTとして分類しなければならない（SHALL）。`INSERT`/`UPDATE ... RETURNING`はOTHERとして分類しなければならない（SHALL）——RETURNING行への`on_result`介入は将来の拡張候補として契約文書に明記するにとどめ、本要件は現時点でその介入を要求しない。複文（`;`区切りで2文以上を含む入力）、PRAGMA、EXPLAIN、およびparseに失敗した文または分類器が意味を判定できないASTノードはUNKNOWNとして分類しなければならない（SHALL）。分類器は分類不能な入力に対して例外を送出してはならず（MUST NOT）、常にUNKNOWNへfall backしなければならない（MUST）。UNKNOWNに分類された文は素通しされ、スコーピング（`only_tables`／`exclude_tables`）の評価対象にならない（SHALL）。fault-injection specの「テーブル名を抽出できない文」の規則は、SELECTに分類されたがテーブル集合を抽出できなかった文（`tables=None`）に適用される。
 
 #### Scenario: CTEはSELECT扱いになる
 - **WHEN** `WITH recent AS (SELECT * FROM orders) SELECT * FROM recent` を分類する
@@ -17,7 +17,7 @@ SQL分類器は、次の境界に従って文型を分類しなければなら�
 
 #### Scenario: 複文・PRAGMA・parse失敗は素通しのまま
 - **WHEN** 複文（`SELECT 1; SELECT 2;`）、`PRAGMA table_info(orders)`、または構文的に解釈できない文を分類する
-- **THEN** いずれもUNKNOWNとして分類され、障害注入なしでバックエンドへ素通しされる
+- **THEN** いずれもUNKNOWNとして分類され、`exclude_tables` 等のスコーピング設定に関わらず障害注入なしでバックエンドへ素通しされる
 
 ### Requirement: 分類器のdialect中立性
 SQL分類器は、全バックエンドで単一の方言中立parse設定（sqlglotのgeneric dialect）を使わなければならない（MUST）。バックエンドごとに異なるdialectを使ってはならない（MUST NOT）——バックエンド別dialectはconformance契約（同一seed・同一SQL列に対するdecisionのバックエンド横断一致）を壊すためである。

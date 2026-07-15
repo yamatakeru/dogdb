@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
+
 import dogdb
 
 from conftest import raw_three_row_connection
 
+from dogdb.core import stats as stats_module
 from dogdb.core.fingerprints import template_fingerprint
+
 
 def test_stats_report_anonymous_classification_and_interventions():
     conn = dogdb.wrap(raw_three_row_connection(), seed=42, faults={"ECHO": 1})
     select_sql = "select id from t order by id"
-    unknown_sql = "with values_cte as (select 1) select * from values_cte"
+    unknown_sql = "pragma user_version"
     conn.execute(select_sql).fetchall()
     conn.execute(unknown_sql).fetchall()
 
@@ -30,6 +34,30 @@ def test_stats_report_anonymous_classification_and_interventions():
     }
     assert stats["passthrough"] == {}
     assert stats["totals"] == {"select": 1, "unknown": 1, "interventions": 1}
+
+
+def test_stats_report_sqlglot_version_without_affecting_decisions_or_events(
+    monkeypatch,
+):
+    runs = []
+    for version in ("diagnostic-a", "diagnostic-b"):
+        monkeypatch.setattr(stats_module, "SQLGLOT_VERSION", version)
+        conn = dogdb.wrap(
+            raw_three_row_connection(),
+            seed=42,
+            session_id="stats-version",
+            faults={"ECHO": 1},
+        )
+        conn.execute("select id from t order by id").fetchall()
+        event = conn.dolly.log()[0]
+        runs.append((conn.dolly.stats(), event))
+
+    assert [stats["sqlglot_version"] for stats, _ in runs] == [
+        "diagnostic-a",
+        "diagnostic-b",
+    ]
+    assert runs[0][1].decision_key == runs[1][1].decision_key
+    assert "sqlglot_version" not in asdict(runs[0][1])
 
 
 def test_stats_count_sticky_stash_as_intervention_each_time():
