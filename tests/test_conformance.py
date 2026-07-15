@@ -104,9 +104,9 @@ def test_backends_use_identical_generic_dialect_classification(monkeypatch):
     for backend in ("duckdb", "sqlite"):
         classifications = []
 
-        def capture(sql):
+        def capture(sql, bucket=classifications):
             classification = classify_sql(sql)
-            classifications.append(classification)
+            bucket.append(classification)
             return classification
 
         monkeypatch.setattr(connection_module, "classify_sql", capture)
