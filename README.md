@@ -31,7 +31,7 @@ print(conn.dolly.house())
 conn.dolly.return_all()
 ```
 
-SQLite なら `dogdb.connect("test.sqlite", backend="sqlite", seed=42)`、DuckDB なら `backend="duckdb"` を使えます。`seed` は必須です。既定の障害確率はすべて0で、`faults`または`fault_probabilities`に障害名と0〜1の確率を渡します。まず1障害を小さな確率で有効化し、テストが安定してから次の障害を1個ずつ足してください。
+SQLite なら `dogdb.connect("test.sqlite", backend="sqlite", seed=42)`、DuckDB なら `backend="duckdb"` を使えます。`seed` は必須です。`faults`に障害名と0〜1の**発火確率（firing probability）**を渡します。既定の発火確率はすべて0です。まず1障害を小さな確率で有効化し、テストが安定してから次の障害を1個ずつ足してください。
 
 イベントを JSONL に残すには `log_path="dogdb-events.jsonl"` を指定します。生 SQL、生パラメータ、生行値は記録されません。パラメータを決定キーにも参加させたい場合だけ `include_params=True` を指定してください。
 
@@ -133,6 +133,8 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 `conn.dolly.stats()`は匿名fingerprintごとのSELECT／UNKNOWN分類数と介入数に加え、理由別の匿名素通し件数（`passthrough`）と、`allow_native_passthrough=True`時のネイティブ転送呼び出し回数（`escape_hatches`、属性の取得時ではなく呼び出し時に集計）を返します。診断メタ情報として`sqlglot_version`も返しますが、decision keyやイベントschemaには使いません。生SQL、生parameter、parameterの型名は含みません。
 
+`faults`で設定する発火確率は、契約文書でいうmood倍率適用前のbase weightです。発火判定は`fire:<FAULT>`でdomain separationされ、faultごとに独立しますが、適用は固定優先順位の先勝ちで最大1件です。そのため、同一操作で前提条件・スコープを満たす先順位faultをそれぞれ`j`とすると、後順位fault`i`の**観測発生率（observed rate）**は概算`p_i × Π(1−p_j)`に遮蔽されます。ここで`p_i`と`p_j`はmood倍率適用後の実効発火確率で、mood無効時は設定した発火確率に等しく、mood有効時はbase weightへ実効倍率がさらに乗ります。この違いが、障害を1個ずつ小さな発火確率で足すことを推奨する理由です。
+
 ## 使用例
 
 - [STASH と house](examples/01_stash_and_house.py) — 隠れた行の粘着性と `return_all()` による復帰を確認します。
@@ -144,6 +146,7 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 ## 限界と安全上の前提
 
+- 設定した発火確率は観測発生率ではなく、先順位faultとの競合やmood倍率によって実際の適用頻度は変わります。
 - 決定性の保証単位はセッション全体です。同一 seed・session・設定・sqlglotバージョンで、セッション先頭から同一の順序付き操作列を流した場合のみ同じ障害列を再現し、途中からの部分 replay や異なるsqlglotバージョン間の一致は保証しません。
 - 対応する入口は上記のバックエンド別接続表面に限定します。それ以外の未知属性は、障害注入を沈黙のまま迂回させないため既定で拒否します。生接続の機能が必要な場合は`allow_native_passthrough=True`を`wrap()`へ指定できますが、その転送経路は障害注入・イベント記録・論理時計・occurrence更新の対象外です。
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
