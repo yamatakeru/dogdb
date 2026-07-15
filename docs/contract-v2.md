@@ -8,7 +8,7 @@
 
 SQL template fingerprintのv4正規化は、単一の左から右への走査で単一引用符文字列リテラル・引用識別子（`"..."`）・コメントの境界を判定する。単一引用符文字列では`''`をエスケープされた引用符として扱い、クォート文字を含むリテラル全体を変更しない。リテラル外で開始した`--`行コメントと`/* */`ブロックコメントは除去し、コメント内のアポストロフィをリテラル開始と解釈しない。除去位置は空白と同様に扱い、コメントの除去によって隣接するトークンを結合しない。リテラル内の`--`と`/* */`はコメントとして扱わない。リテラル・引用識別子・コメント外に限り、先頭末尾のUnicode whitespace除去、連続whitespaceの単一ASCII空白化、Unicode lowercase変換を適用する。引用識別子（`"..."`）は境界を認識し、内容にはlowercase変換のみを適用する（`""`はエスケープされた引用符として扱い、内部の空白・コメント記号・アポストロフィは特別扱いしない）。`$$…$$`など、単一引用符文字列と`--`・`/* */`以外の方言的クォーティングは認識せず、通常のSQLテキストとして扱う。正規化結果をUTF-8 bytesへ変換し、SHA-256を取る。
 
-parameter fingerprint の入力域は、JSONネイティブのscalar値と、厳密な型一致による `bytes`、`bytearray`、`datetime.date`、`datetime.time`、`datetime.datetime`、`Decimal`、`UUID` に閉じる。サブクラスや独自型を含む入力域外の位置パラメータ操作は、fingerprint、decision、event、occurrenceを生成せずバックエンドへ素通しする。素通し操作でもmood／自動返却の論理時計は1操作として進める。発生数は `dolly.stats()["passthrough"]["unsupported_parameter_type"]` に記録し、生パラメータ、型名、reprを統計へ含めてはならない。将来この操作を障害注入対象にする場合は、occurrenceとreplay系列が変わるため、`POLICY_VERSION` 更新の要否を判断しなければならない。
+parameter fingerprint の入力域は、JSONネイティブのscalar値と、厳密な型一致による `bytes`、`bytearray`、`datetime.date`、`datetime.time`、`datetime.datetime`、`Decimal`、`UUID` に閉じる。サブクラスや独自型を含む入力域外の位置パラメータ操作は、fingerprint、decision、event、occurrenceを生成せずバックエンドへ素通しする。素通し操作でもmood／自動返却の論理時計は1操作として進める。発生数は `dolly.stats()["passthrough"]["unsupported_parameter_type"]` に記録し、生パラメータ、型名、reprを統計へ含めてはならない。素通し理由と発火モードの全体契約は「素通しの観測と発火ポリシー」に従う。将来この操作を障害注入対象にする場合は、occurrenceとreplay系列が変わるため、`POLICY_VERSION` 更新の要否を判断しなければならない。
 
 occurrence カウンタおよび fingerprint 単位の統計はセッション中に退避または再初期化してはならず、単調増加する。occurrence の再利用は決定キーを変えるためである。DuckDB のセッションは親接続と全 `cursor()` クローンを横断する `execute()` 呼び出しの全順序であり、stats・house・イベントログ・論理時計は意図して合算する。セッションはテストケースまたは小規模テストスイート単位で作り直し、長時間稼働プロセスへ常設しない。
 
@@ -124,6 +124,12 @@ decision key の導出入力には加えない。taxonomy の追加によって
 接続proxyの未定義属性は既定で生接続へ転送せず、`AttributeError`で拒否する。`allow_native_passthrough=True`を明示した場合だけ転送を許可し、callableな属性が実際に呼ばれた時点で`stats()["escape_hatches"]`を増分する。アダプタが宣言したSQL実行能力のある入口は属性名ごとに、それ以外のcallableは`other`に集約する。属性取得や`hasattr`だけでは増分しない。また、生SQL、生パラメータ、呼び出し引数は統計に保持しない。
 
 escape hatchの値はnative methodの**呼び出し回数**であり、backendが実行したSQL数ではない。とくにDuckDBの`sql()`は遅延評価されるrelationを返すため、`sql`の呼び出し回数と実際のSQL実行回数は一致するとは限らない。転送経路は障害注入、イベント記録、論理時計、occurrence更新の対象外である。
+
+## 素通しの観測と発火ポリシー
+
+介入表面内の素通し理由は、`named_parameters`（Mapping型の名前付きパラメータ）、`unknown_sql`（分類不能SQL）、`transaction_statement`（BEGIN／COMMIT／ROLLBACK）、`unsupported_parameter_type`（fingerprint入力域外の位置パラメータ）、`executemany`（`executemany`入口）の5種に閉じる。各操作は該当する理由を`stats()["passthrough"]`へ記録し、生SQL、生パラメータ、型名、reprを保持してはならない。`passthrough`は発生した理由キーのみを含む疎な辞書である。stats snapshotは既存のトップレベル・ネストキーを削除または改名せず、キー追加のみで後方互換を維持する。
+
+`wrap()`の`on_passthrough`は`"allow"`（既定）、`"warn"`、`"error"`のいずれかとする。発火対象は`named_parameters`、`unknown_sql`、`unsupported_parameter_type`に固定する。`"warn"`は`DollyPassthroughWarning`を通知した後にバックエンド実行を続け、`"error"`はstats記録後かつバックエンド実行前に、`DogDBError`とは独立した`DollyPassthroughError`を送出する。この例外の`retryable`は読み取り専用の`False`である。`transaction_statement`と`executemany`は全モードで無警告・無エラーのまま実行する。いずれのモードもdecision、event、occurrenceを生成せず、理由別stats記録は常に行う。
 
 ## バックエンド別公開表面と適合契約
 

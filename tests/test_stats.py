@@ -32,7 +32,7 @@ def test_stats_report_anonymous_classification_and_interventions():
         "unknown": 1,
         "interventions": 0,
     }
-    assert stats["passthrough"] == {}
+    assert stats["passthrough"] == {"unknown_sql": 1}
     assert stats["totals"] == {"select": 1, "unknown": 1, "interventions": 1}
 
 

@@ -137,6 +137,18 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 `conn.dolly.stats()`は匿名fingerprintごとのSELECT／UNKNOWN分類数と介入数に加え、理由別の匿名素通し件数（`passthrough`）と、`allow_native_passthrough=True`時のネイティブ転送呼び出し回数（`escape_hatches`、属性の取得時ではなく呼び出し時に集計）を返します。診断メタ情報として`sqlglot_version`も返しますが、decision keyやイベントschemaには使いません。生SQL、生parameter、parameterの型名は含みません。
 
+`passthrough` は発生した理由だけを含む疎な辞書です。理由キーの正規語彙は次の5種です。
+
+| 理由キー | 発生箇所 |
+|---|---|
+| `named_parameters` | Mapping型の名前付きパラメータを使う`execute` |
+| `unknown_sql` | SQL分類器がUNKNOWNと判定した文 |
+| `transaction_statement` | BEGIN／COMMIT／ROLLBACK |
+| `unsupported_parameter_type` | fingerprint入力域外の位置パラメータを使う`execute` |
+| `executemany` | `executemany`入口 |
+
+`wrap(..., on_passthrough=...)` で素通しの扱いを選べます。既定の`"allow"`は静かに実行を続け、`"warn"`は`DollyPassthroughWarning`を通知してから実行を続け、`"error"`は`DollyPassthroughError`（`retryable=False`）でバックエンド実行前に止めます。warn/errorの発火対象は`named_parameters`、`unknown_sql`、`unsupported_parameter_type`です。正常運転上必要な`transaction_statement`と、明示的に対象外の`executemany`は、どのモードでも無警告・無エラーで素通しします。理由別のstats記録はモードに関わらず行われます。
+
 `faults`で設定する発火確率は、契約文書でいうmood倍率適用前のbase weightです。発火判定は`fire:<FAULT>`でdomain separationされ、faultごとに独立しますが、適用は固定優先順位の先勝ちで最大1件です。そのため、同一操作で前提条件・スコープを満たす先順位faultをそれぞれ`j`とすると、後順位fault`i`の**観測発生率（observed rate）**は概算`p_i × Π(1−p_j)`に遮蔽されます。ここで`p_i`と`p_j`はmood倍率適用後の実効発火確率で、mood無効時は設定した発火確率に等しく、mood有効時はbase weightへ実効倍率がさらに乗ります。この違いが、障害を1個ずつ小さな発火確率で足すことを推奨する理由です。
 
 ## 使用例
@@ -155,6 +167,7 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 - 対応する入口は上記のバックエンド別接続表面に限定します。それ以外の未知属性は、障害注入を沈黙のまま迂回させないため既定で拒否します。生接続の機能が必要な場合は`allow_native_passthrough=True`を`wrap()`へ指定できますが、その転送経路は障害注入・イベント記録・論理時計・occurrence更新の対象外です。
 - 行同一性は主キーではなく、結果セット内の位置です。パラメータや元の順序が変わると同じ位置が別の行を指す場合があります。
 - SQL 分類は全バックエンドでsqlglotの方言中立（generic）parseを使います。CTE（`WITH ... SELECT`）とUNION／EXCEPT／INTERSECTはSELECTとして障害候補になります。`INSERT`／`UPDATE ... RETURNING`はOTHERのままで、複文、PRAGMA、EXPLAIN、parse失敗・分類不能文、名前付きパラメータ、fingerprint入力域外の位置パラメータ、`executemany`へ直接faultは注入せず、faultのdecision／event／occurrenceを生成しないまま素通しします。これらの素通し操作でもmood／自動返却の論理時計は1操作として進むため、mood遷移や自動返却（`auto_return`）の状態イベントは生成され得ます。
+- 「注入したつもり」の素通しを明示的に検出するには`on_passthrough="warn"`または`"error"`を指定します。`transaction_statement`と`executemany`は通知・拒否の対象外です。
 - 結果を `execute` 時に全件 materialize します。`max_intervention_rows`（既定 10,000）は materialize 済み結果へ fault を適用する行数上限であり、取得件数や保持メモリの上限ではありません。超過時も既定では全行を無改変で返すため、メモリ保護にはなりません。house は 1,000 件を上限とし、小規模なテストデータを前提にします。
 - 大きすぎる結果を明示的にテスト失敗にするには `on_max_rows="error"` を指定します。`limit_exceeded` を記録してから非 retryable な `DollyLimitError` を送出しますが、この判定はバックエンド実行と全行 materialize の後です。必要なら `max_intervention_rows` を調整してください。
 - occurrence カウンタと fingerprint 単位の統計は、決定性を守るためセッション中に退避・再初期化せず単調増加します。長時間稼働プロセスへ常設せず、テストケースまたは小規模テストスイート単位で接続をラップし直してください。

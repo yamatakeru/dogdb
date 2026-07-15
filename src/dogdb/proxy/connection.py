@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
@@ -14,6 +15,7 @@ from dogdb.adapters.sqlite import SQLiteAdapter
 from dogdb.core.auto_return import AutoReturnScheduler, parse_auto_return_config
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.event_log import Event, EventLog
+from dogdb.core.errors import DollyPassthroughError, DollyPassthroughWarning
 from dogdb.core.faults import (
     BEFORE_EXECUTE_PRIORITY,
     KNOWN_FAULTS,
@@ -100,6 +102,7 @@ class _InterventionEngine:
         auto_return: AutoReturnScheduler | None,
         stale_cache: StaleReadCache | None,
         stats: StatsTracker,
+        on_passthrough: str,
     ) -> None:
         self._decisions = DecisionEngine(
             seed=seed, session_id=session_id, include_params=include_params
@@ -123,6 +126,9 @@ class _InterventionEngine:
         self._auto_return = auto_return
         self._stale_cache = stale_cache
         self._stats = stats
+        # Passthrough policy is deliberately outside FaultPolicy: it produces no
+        # decision or event and therefore must not affect deterministic derivation.
+        self._on_passthrough = on_passthrough
         self._logical_tick = 0 if mood is not None or auto_return is not None else None
         self._only_tables = only_tables
         self._exclude_tables = exclude_tables
@@ -140,14 +146,20 @@ class _InterventionEngine:
         self._stats.record_classification(fingerprint, classification.kind)
         is_mapping = isinstance(params, Mapping)
         unsupported_params = not is_mapping and not params_in_fingerprint_domain(params)
-        if unsupported_params:
-            self._stats.record_passthrough("unsupported_parameter_type")
-        if (
-            is_mapping
-            or classification.kind is SQLKind.UNKNOWN
-            or classification.is_transaction
-            or unsupported_params
-        ):
+        # Preserve the historical early-return evaluation order. It is also the
+        # classification priority when an operation matches multiple reasons.
+        passthrough_reason = None
+        if is_mapping:
+            passthrough_reason = "named_parameters"
+        elif classification.kind is SQLKind.UNKNOWN:
+            passthrough_reason = "unknown_sql"
+        elif classification.is_transaction:
+            passthrough_reason = "transaction_statement"
+        elif unsupported_params:
+            passthrough_reason = "unsupported_parameter_type"
+        if passthrough_reason is not None:
+            self._stats.record_passthrough(passthrough_reason)
+            self._apply_passthrough_policy(passthrough_reason)
             return adapter.execute(sql, params)  # type: ignore[arg-type]
 
         template, parameter, occurrence = self._decisions.begin(
@@ -204,6 +216,19 @@ class _InterventionEngine:
             self._stale_cache.add(on_result, logical_result)
         return logical_result
 
+    def _apply_passthrough_policy(self, reason: str) -> None:
+        if reason not in {
+            "unknown_sql",
+            "named_parameters",
+            "unsupported_parameter_type",
+        }:
+            return
+        message = f"DogDB fault injection passthrough: {reason}"
+        if self._on_passthrough == "warn":
+            warnings.warn(message, DollyPassthroughWarning)
+        elif self._on_passthrough == "error":
+            raise DollyPassthroughError(message)
+
     def _begin_operation(self) -> None:
         if self._logical_tick is None:
             return
@@ -243,6 +268,7 @@ class _InterventionEngine:
         self, adapter: Adapter, sql: str, params: Sequence[Sequence[Any]]
     ) -> LogicalResult:
         self._begin_operation()
+        self._stats.record_passthrough("executemany")
         return adapter.executemany(sql, params)
 
 
@@ -624,6 +650,7 @@ def wrap(
     log_path: str | Path | None = None,
     max_intervention_rows: int = 10_000,
     on_max_rows: str = "skip",
+    on_passthrough: str = "allow",
     house_limit: int = 1_000,
     only_tables: Sequence[str] | None = None,
     exclude_tables: Sequence[str] | None = None,
@@ -631,6 +658,8 @@ def wrap(
 ) -> DuckDBProxy | SQLiteProxy:
     if only_tables is not None and exclude_tables is not None:
         raise ValueError("only_tables and exclude_tables are mutually exclusive")
+    if on_passthrough not in {"allow", "warn", "error"}:
+        raise ValueError("on_passthrough must be 'allow', 'warn', or 'error'")
     if not callable(clock):
         raise ValueError("clock must be callable")
     probabilities: dict[str, float] = {}
@@ -692,6 +721,7 @@ def wrap(
         auto_return=auto_return_scheduler,
         stale_cache=stale_cache,
         stats=stats,
+        on_passthrough=on_passthrough,
     )
 
 
