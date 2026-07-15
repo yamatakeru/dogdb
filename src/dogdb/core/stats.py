@@ -9,6 +9,16 @@ from sqlglot import __version__ as SQLGLOT_VERSION
 
 from dogdb.core.sql import SQLKind
 
+PASSTHROUGH_REASONS = frozenset(
+    {
+        "unsupported_parameter_type",
+        "named_parameters",
+        "unknown_sql",
+        "transaction_statement",
+        "executemany",
+    }
+)
+
 
 @dataclass(slots=True)
 class FingerprintStats:
@@ -38,6 +48,8 @@ class StatsTracker:
         self._escape_hatches[name] = self._escape_hatches.get(name, 0) + 1
 
     def record_passthrough(self, reason: str) -> None:
+        if reason not in PASSTHROUGH_REASONS:
+            raise ValueError(f"unknown passthrough reason: {reason!r}")
         self._passthrough[reason] += 1
 
     def snapshot(self) -> dict[str, object]:

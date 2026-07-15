@@ -58,6 +58,18 @@ class DollyLimitError(DogDBError):
     pass
 
 
+class DollyPassthroughWarning(UserWarning):
+    """A supported proxy surface bypassed fault injection."""
+
+
+class DollyPassthroughError(Exception):
+    """An opted-in passthrough policy blocked backend execution."""
+
+    @property
+    def retryable(self) -> bool:
+        return False
+
+
 class DollyTailChaseError(DogDBError):
     def __init__(
         self,
