@@ -58,7 +58,7 @@ IGNOREは文の実行**前**に発火し、バックエンドへ文を送らず�
 
 #### Scenario: 対象テーブルを絞る
 - **WHEN** `only_tables=["orders"]` を指定し、`orders` と `users` へのSELECTを実行する
-- **THEN** 障害は `orders` への文にのみ発火し得て、テーブル名を抽出できないCTE文には発火しない
+- **THEN** 障害は `orders` への文にのみ発火し得て、テーブル名を抽出できない複文には発火しない
 
 ### Requirement: エラー型階層と実DBエラーの透過
 注入エラーはすべて `DogDBError` 基底のサブクラスでなければならない（MUST）。バックエンド由来の実エラーはラップせず素通ししなければならず（SHALL）、`isinstance(e, DogDBError)` で注入と実障害を判別できなければならない（MUST）。楽しい文言は `str(error)` のみに置き、テストの制御は属性で行えなければならない（SHALL）。機械可読属性には `event_id`・`fault`・`phase`・`retryable`・`outcome` に加えて `category`・`severity` を含めなければならない（SHALL）。
