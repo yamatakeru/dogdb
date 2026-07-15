@@ -159,6 +159,7 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 - [pytest でのカオステスト](examples/04_pytest_chaos.py) — フィクスチャとイベントログの assert で耐障害性を検証します。
 - [障害を1個ずつ追加](examples/05_add_faults_one_at_a_time.py) — ECHOとno-op clock付きSLOTHを別セッションで試します。
 - [mood・自動返却・OLD_BONE](examples/06_stateful_faults.py) — 状態系opt-inと匿名statsを確認します。
+- [素通しの検出](examples/07_detect_passthrough.py) — `on_passthrough` のwarn／errorで「注入したつもり」の素通しを検出します。
 
 ## 限界と安全上の前提
 
