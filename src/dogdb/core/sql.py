@@ -1,9 +1,12 @@
-"""Conservative SQL classification without a parser dependency."""
+"""Conservative SQL classification using sqlglot's generic dialect."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+
+from sqlglot import ErrorLevel, exp, parse
+from sqlglot.optimizer.scope import Scope, ScopeType, traverse_scope
 
 
 class SQLKind(Enum):
@@ -22,176 +25,93 @@ class SQLClassification:
     top_level_offset: int | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class _Token:
-    value: str
-    depth: int
-    kind: str = "word"
+_TRANSACTIONS = (exp.Transaction, exp.Commit, exp.Rollback)
+_KNOWN_OTHER = (
+    exp.Create,
+    exp.Delete,
+    exp.Drop,
+    exp.Insert,
+    exp.Update,
+    *_TRANSACTIONS,
+)
 
 
-_KNOWN_OTHER = {
-    "begin",
-    "commit",
-    "create",
-    "delete",
-    "drop",
-    "insert",
-    "rollback",
-    "update",
-}
+def _table_name(table: exp.Table) -> str | None:
+    parts = [part.name.lower() for part in table.parts if part.name]
+    return ".".join(parts) if parts else None
 
 
-def _tokens(sql: str) -> list[_Token] | None:
-    tokens: list[_Token] = []
-    word: list[str] = []
-    depth = 0
-    quote: str | None = None
-    quoted_identifier: list[str] = []
-    index = 0
+def _within_cte(scope: Scope) -> bool:
+    current: Scope | None = scope
+    while current is not None:
+        if current.scope_type is ScopeType.CTE:
+            return True
+        current = current.parent
+    return False
 
-    def flush() -> None:
-        if word:
-            tokens.append(_Token("".join(word).lower(), depth))
-            word.clear()
 
-    while index < len(sql):
-        char = sql[index]
-        next_char = sql[index + 1] if index + 1 < len(sql) else ""
-        if quote is not None:
-            if char == quote:
-                if next_char == quote:
-                    if quote == '"':
-                        quoted_identifier.append(char)
-                    index += 2
+def _from_tables(query: exp.Select) -> frozenset[str] | None:
+    try:
+        scopes = traverse_scope(query)
+        root = next(scope for scope in scopes if scope.scope_type is ScopeType.ROOT)
+        for _, source in root.selected_sources.values():
+            if isinstance(source, Scope) and source.scope_type is not ScopeType.CTE:
+                return None
+
+        names: set[str] = set()
+        for scope in scopes:
+            if scope is not root and not _within_cte(scope):
+                continue
+            for _, source in scope.selected_sources.values():
+                if not isinstance(source, exp.Table):
                     continue
-                if quote == '"':
-                    tokens.append(
-                        _Token("".join(quoted_identifier).lower(), depth, "identifier")
-                    )
-                    quoted_identifier.clear()
-                quote = None
-            elif quote == '"':
-                quoted_identifier.append(char)
-            index += 1
-            continue
-        if char in ("'", '"'):
-            flush()
-            quote = char
-        elif char == "-" and next_char == "-":
-            flush()
-            index = sql.find("\n", index + 2)
-            if index < 0:
-                break
-            continue
-        elif char == "/" and next_char == "*":
-            flush()
-            end = sql.find("*/", index + 2)
-            if end < 0:
-                return None
-            index = end + 2
-            continue
-        elif char == "(":
-            flush()
-            tokens.append(_Token(char, depth, "symbol"))
-            depth += 1
-        elif char == ")":
-            flush()
-            depth -= 1
-            if depth < 0:
-                return None
-            tokens.append(_Token(char, depth, "symbol"))
-        elif char == ";":
-            flush()
-            if sql[index + 1 :].strip():
-                return None
-        elif char.isalnum() or char == "_":
-            word.append(char)
-        else:
-            flush()
-            if char in {".", ",", "+", "-", "*", "/", "%", "?"}:
-                tokens.append(_Token(char, depth, "symbol"))
-        index += 1
-    flush()
-    return tokens if quote is None and depth == 0 else None
-
-
-def _from_tables(tokens: list[_Token]) -> frozenset[str] | None:
-    top_level = [token for token in tokens if token.depth == 0]
-    tables: set[str] = set()
-    for index, token in enumerate(top_level):
-        if token.kind != "word" or token.value not in {"from", "join"}:
-            continue
-        if index + 1 >= len(top_level):
-            return None
-        first = top_level[index + 1]
-        if first.kind not in {"word", "identifier"}:
-            return None
-        name = first.value
-        if index + 3 < len(top_level) and top_level[index + 2].value == ".":
-            second = top_level[index + 3]
-            if second.kind not in {"word", "identifier"}:
-                return None
-            name = f"{name}.{second.value}"
-        following = top_level[index + 2] if index + 2 < len(top_level) else None
-        if following is not None and following.value == "(":
-            return None
-        tables.add(name)
-    return frozenset(tables) if tables else None
-
-
-def _literal_after(tokens: list[_Token], keyword: str) -> int | None:
-    top_level = [token for token in tokens if token.depth == 0]
-    positions = [
-        index
-        for index, token in enumerate(top_level)
-        if token.kind == "word" and token.value == keyword
-    ]
-    if len(positions) != 1 or positions[0] + 1 >= len(top_level):
+                name = _table_name(source)
+                if name is None:
+                    return None
+                names.add(name)
+        return frozenset(names) if names else None
+    except Exception:
         return None
-    literal = top_level[positions[0] + 1]
-    if (
-        literal.kind != "word"
-        or not literal.value.isascii()
-        or not literal.value.isdecimal()
-    ):
+
+
+def _literal_value(query: exp.Select, key: str) -> int | None:
+    clause = query.args.get(key)
+    if clause is None:
         return None
-    following = (
-        top_level[positions[0] + 2]
-        if positions[0] + 2 < len(top_level)
-        else None
-    )
-    allowed_following = (
-        {"offset"} if keyword == "limit" else {"rows", "fetch", "for"}
-    )
-    if following is not None and (
-        following.kind != "word" or following.value not in allowed_following
-    ):
+    literal = clause.expression
+    if not isinstance(literal, exp.Literal) or literal.is_string:
         return None
-    return int(literal.value)
+    value = literal.this
+    if not isinstance(value, str) or not value.isascii() or not value.isdecimal():
+        return None
+    return int(value)
 
 
 def classify_sql(sql: str) -> SQLClassification:
-    tokens = _tokens(sql)
-    if not tokens:
+    try:
+        expressions = parse(sql, read=None, error_level=ErrorLevel.RAISE)
+        if len(expressions) != 1 or expressions[0] is None:
+            return SQLClassification(SQLKind.UNKNOWN)
+        expression = expressions[0]
+
+        if isinstance(expression, exp.SetOperation):
+            return SQLClassification(
+                SQLKind.SELECT,
+                has_top_level_order_by=expression.args.get("order") is not None,
+            )
+        if isinstance(expression, exp.Select):
+            return SQLClassification(
+                SQLKind.SELECT,
+                has_top_level_order_by=expression.args.get("order") is not None,
+                tables=_from_tables(expression),
+                top_level_limit=_literal_value(expression, "limit"),
+                top_level_offset=_literal_value(expression, "offset"),
+            )
+        if isinstance(expression, _KNOWN_OTHER):
+            return SQLClassification(
+                SQLKind.OTHER,
+                is_transaction=isinstance(expression, _TRANSACTIONS),
+            )
+    except Exception:
         return SQLClassification(SQLKind.UNKNOWN)
-    top_level = [token.value for token in tokens if token.depth == 0]
-    if not top_level:
-        return SQLClassification(SQLKind.UNKNOWN)
-    if top_level[0] == "select":
-        ordered = any(
-            top_level[index : index + 2] == ["order", "by"]
-            for index in range(len(top_level) - 1)
-        )
-        return SQLClassification(
-            SQLKind.SELECT,
-            ordered,
-            tables=_from_tables(tokens),
-            top_level_limit=_literal_after(tokens, "limit"),
-            top_level_offset=_literal_after(tokens, "offset"),
-        )
-    if top_level[0] in _KNOWN_OTHER:
-        return SQLClassification(
-            SQLKind.OTHER,
-            is_transaction=top_level[0] in {"begin", "commit", "rollback"},
-        )
     return SQLClassification(SQLKind.UNKNOWN)

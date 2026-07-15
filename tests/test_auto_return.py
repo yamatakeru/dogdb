@@ -12,7 +12,7 @@ def test_auto_return_runs_before_mood_and_current_fault():
     conn = dogdb.wrap(
         raw_three_row_connection(),
         seed=42,
-        session_id="s1",
+        session_id="auto-order-v4-0",
         faults={"STASH": 1, "ECHO": 1},
         auto_return=(1, 1),
         mood={"epoch_length": 1},

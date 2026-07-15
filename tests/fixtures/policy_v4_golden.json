@@ -1,7 +1,7 @@
 {
   "IGNORE": {
     "error": {
-      "event_id": "1bf65d5a33deb1ed5ea9af6e2bf76cbe",
+      "event_id": "cb6f4336949b9a898df245690f82bcce",
       "fault": "IGNORE",
       "outcome": "not_executed",
       "phase": "before_execute",
@@ -10,14 +10,14 @@
     },
     "events": [
       {
-        "decision_key": "sha256:4249ec59d8e3b314fe0b99826e087e40a7f9f0edc2e50d27a23c2baaba157adc",
+        "decision_key": "sha256:f562bb2e829e3491e2cc7c6dc29d96fa665a6a796217dcce7ad5b5825a83ee3d",
         "details": {},
-        "event_id": "1bf65d5a33deb1ed5ea9af6e2bf76cbe",
+        "event_id": "cb6f4336949b9a898df245690f82bcce",
         "event_type": "fault_injected",
         "fault": "IGNORE",
         "occurrence": 1,
         "outcome": "not_executed",
-        "parameter_fingerprint": "hmac-sha256:fc9fb6f7043055e819a25f4b6e34cd4e63195aa21c7d2dd03f95d10829fbbeb2",
+        "parameter_fingerprint": "hmac-sha256:55a2b0fe4729bf27e0a1ac5c3b2cc043bc0789e67f9c5896a1d01b3256e5e9b0",
         "phase": "before_execute",
         "schema_version": 2,
         "seq": 1,
@@ -31,14 +31,14 @@
     "error": null,
     "events": [
       {
-        "decision_key": "sha256:6a54aa995915131280fe16f189c9e0fd04ba8865f2b7263ce00d5f7eed681fce",
+        "decision_key": "sha256:5883034f73e66851b3690e7f49b59acdffa22b843af71dcdcb1328b323c4a088",
         "details": {},
-        "event_id": "01f2aa0d5b027fc3586d694de7bb5f3f",
+        "event_id": "9310787475685101e5d6790b18715be9",
         "event_type": "fault_injected",
         "fault": "SHUFFLE",
         "occurrence": 1,
         "outcome": "rows_reordered",
-        "parameter_fingerprint": "hmac-sha256:080f9eac2c89a896d4500025f03c9c370f0571c1e7b4f22f367877c834f9fffa",
+        "parameter_fingerprint": "hmac-sha256:80e4f0f21e5128ee1bdb4a2cc6d44c7030854d2423b164c258bd2bdb3356e752",
         "phase": "on_result",
         "schema_version": 2,
         "seq": 1,
@@ -48,16 +48,16 @@
     ],
     "rows": [
       [
-        3
+        0
+      ],
+      [
+        2
       ],
       [
         4
       ],
       [
-        0
-      ],
-      [
-        2
+        3
       ],
       [
         1
@@ -68,19 +68,19 @@
     "error": null,
     "events": [
       {
-        "decision_key": "sha256:bfdb1221b997181a50042ea18fd27f877f06d1ee6c28120bb1181452b706ddff",
+        "decision_key": "sha256:f638f5d442c5927621ce76d41de93ba511c2ba61a7e090bab0a4d924aa39479c",
         "details": {
           "row_indices": [
-            2
+            1
           ],
-          "treasure_id": "d93e7f64d4cdd51e13860f50a371b441"
+          "treasure_id": "d38c02128ee1eb828ca38a726a5757a3"
         },
-        "event_id": "b78230911c3632f2c378fec2a83a1d6a",
+        "event_id": "cea6e67bad87103850f9f4ced273980b",
         "event_type": "fault_injected",
         "fault": "STASH",
         "occurrence": 1,
         "outcome": "rows_hidden",
-        "parameter_fingerprint": "hmac-sha256:6a4dd0a70380a7cd55a218d3d51c0347b9f6addb9b6e859789aeb0fcd2b32f39",
+        "parameter_fingerprint": "hmac-sha256:ff5f733af00b78e81e59368188b32267ec702f05aa2c3fa833e0351d5df7a7bb",
         "phase": "on_result",
         "schema_version": 2,
         "seq": 1,
@@ -93,7 +93,7 @@
         0
       ],
       [
-        1
+        2
       ],
       [
         3

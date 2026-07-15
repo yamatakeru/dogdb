@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 
+from sqlglot import __version__ as SQLGLOT_VERSION
+
 from dogdb.core.sql import SQLKind
 
 
@@ -44,6 +46,7 @@ class StatsTracker:
             for fingerprint, value in sorted(self._values.items())
         }
         return {
+            "sqlglot_version": SQLGLOT_VERSION,
             "fingerprints": fingerprints,
             "escape_hatches": dict(self._escape_hatches),
             "passthrough": dict(sorted(self._passthrough.items())),

@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import re
 from collections.abc import Sequence
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -13,7 +12,6 @@ from typing import Any
 from uuid import UUID
 
 
-_WHITESPACE = re.compile(r"\s+")
 FINGERPRINT_PARAMETER_TYPES = (
     type(None),
     bool,
@@ -31,9 +29,59 @@ FINGERPRINT_PARAMETER_TYPES = (
 
 
 def normalize_sql(sql: str) -> str:
-    """Apply policy v1 normalization: trim, collapse whitespace, lowercase."""
+    """Apply policy v4 normalization in one left-to-right scan."""
 
-    return _WHITESPACE.sub(" ", sql.strip()).lower()
+    normalized: list[str] = []
+    pending_space = False
+    in_literal = False
+    index = 0
+
+    while index < len(sql):
+        char = sql[index]
+        next_char = sql[index + 1] if index + 1 < len(sql) else ""
+
+        if in_literal:
+            normalized.append(char)
+            if char == "'":
+                if next_char == "'":
+                    normalized.append(next_char)
+                    index += 2
+                    continue
+                in_literal = False
+            index += 1
+            continue
+
+        if char == "-" and next_char == "-":
+            index += 2
+            while index < len(sql) and sql[index] not in "\r\n":
+                index += 1
+            pending_space = bool(normalized)
+            continue
+        if char == "/" and next_char == "*":
+            index += 2
+            while index < len(sql):
+                if sql[index] == "*" and index + 1 < len(sql) and sql[index + 1] == "/":
+                    index += 2
+                    break
+                index += 1
+            pending_space = bool(normalized)
+            continue
+        if char.isspace():
+            pending_space = bool(normalized)
+            index += 1
+            continue
+
+        if pending_space:
+            normalized.append(" ")
+            pending_space = False
+        if char == "'":
+            in_literal = True
+            normalized.append(char)
+        else:
+            normalized.append(char.lower())
+        index += 1
+
+    return "".join(normalized)
 
 
 def template_fingerprint(sql: str) -> str:

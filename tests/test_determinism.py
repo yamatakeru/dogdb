@@ -12,8 +12,10 @@ import pytest
 
 from dogdb.core.decision import DecisionEngine
 from dogdb.core.fingerprints import (
+    normalize_sql,
     parameter_fingerprint,
     params_in_fingerprint_domain,
+    template_fingerprint,
 )
 
 
@@ -43,6 +45,45 @@ def test_same_inputs_produce_same_event_sequence():
         conn.execute("select id from t").fetchall()
         runs.append(conn.dolly.log())
     assert runs[0] == runs[1]
+
+
+def test_v4_fingerprint_preserves_literal_case():
+    assert template_fingerprint("SELECT 'DOG'") != template_fingerprint("SELECT 'dog'")
+
+
+def test_v4_normalization_preserves_literal_whitespace_and_escaped_quotes():
+    assert normalize_sql("  SELECT   'a   b'''  ") == "select 'a   b'''"
+
+
+def test_v4_normalization_strips_comments_without_misreading_apostrophes():
+    assert normalize_sql("SELECT 1 -- don't break") == "select 1"
+    assert normalize_sql("SELECT /* dog's request */ 1") == "select 1"
+
+
+def test_v4_normalization_does_not_strip_comment_markers_inside_literals():
+    assert normalize_sql("SELECT 'a -- b', 'c /* d */ e'") == (
+        "select 'a -- b', 'c /* d */ e'"
+    )
+
+
+def test_v4_normalization_treats_comments_as_separators():
+    assert normalize_sql("SELECT a/**/b FROM t") == "select a b from t"
+    assert template_fingerprint("SELECT a/**/b FROM t") != (
+        template_fingerprint("SELECT ab FROM t")
+    )
+    assert normalize_sql("/* leading */SELECT 1") == "select 1"
+
+
+def test_v4_fingerprint_ignores_comment_contents():
+    assert template_fingerprint("SELECT 1 -- request-id: abc") == (
+        template_fingerprint("SELECT 1 -- request-id: xyz")
+    )
+
+
+def test_v4_normalization_still_lowercases_quoted_identifiers():
+    assert normalize_sql('SELECT "MixedCase" FROM "Orders"') == (
+        'select "mixedcase" from "orders"'
+    )
 
 
 def test_changing_uuid_params_does_not_change_default_decision():

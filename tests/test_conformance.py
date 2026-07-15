@@ -11,6 +11,8 @@ import pytest
 
 import dogdb
 from dogdb.adapters import DuckDBAdapter, SQLiteAdapter
+from dogdb.core.sql import classify_sql
+from dogdb.proxy import connection as connection_module
 
 
 def _backend(name: str):
@@ -88,6 +90,30 @@ def test_backends_produce_matching_fault_events():
             )
         )
     assert signatures[0] == signatures[1]
+
+
+def test_backends_use_identical_generic_dialect_classification(monkeypatch):
+    sql_statements = (
+        "with c as (select id from t) select id from c limit 2 offset 1",
+        "select id from t union select id from t order by id",
+    )
+    observed = []
+
+    for backend in ("duckdb", "sqlite"):
+        classifications = []
+
+        def capture(sql):
+            classification = classify_sql(sql)
+            classifications.append(classification)
+            return classification
+
+        monkeypatch.setattr(connection_module, "classify_sql", capture)
+        conn = dogdb.wrap(_populated(backend), seed=42)
+        for sql in sql_statements:
+            conn.execute(sql).fetchall()
+        observed.append(classifications)
+
+    assert observed[0] == observed[1]
 
 
 @pytest.mark.parametrize("backend", ["duckdb", "sqlite"])

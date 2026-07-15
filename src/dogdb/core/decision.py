@@ -14,7 +14,10 @@ from dogdb.core.fingerprints import (
 from dogdb.core.models import Decision
 
 
-POLICY_VERSION = "dogdb-v3:normalize=trim+collapse-whitespace+lowercase"
+POLICY_VERSION = (
+    "dogdb-v4:normalize=trim+collapse-whitespace+"
+    "lowercase-outside-literals+strip-comments"
+)
 
 
 class _MemoizedParameterFingerprint:

@@ -1,6 +1,6 @@
 # DogDB contract v1
 
-> **歴史的文書:** policy v3 では本書の決定値互換性は失効している。ワイヤスキーマ規則は event-log spec を参照すること。
+> **歴史的文書:** policy v3で本書の決定値互換性は失効し、policy v4では正規化規則と分類境界も更新されている。ワイヤスキーマ規則は event-log spec を参照すること。
 
 この文書は実装言語、DB ドライバ、将来の proxy 形態に依存しない DogDB v1 の相互運用契約である。キーワード MUST / MUST NOT / SHALL は拘束要件を表す。
 
