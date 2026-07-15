@@ -130,3 +130,18 @@ def test_unknown_fault_name_is_rejected_before_wrapping():
     with pytest.raises(ValueError, match=r"unknown faults: ZOOMIES"):
         dogdb.wrap(raw, seed=42, faults={"ZOOMIES": 1})
     assert raw.execute("select count(*) from t").fetchone() == (5,)
+
+
+def test_legacy_fault_alias_is_rejected():
+    raw = _raw()
+    legacy_argument = "fault_" + "probabilities"
+    with pytest.raises(
+        TypeError, match=rf"unexpected keyword argument '{legacy_argument}'"
+    ):
+        dogdb.wrap(raw, seed=1, **{legacy_argument: {"STASH": 0.1}})
+    assert raw.execute("select count(*) from t").fetchone() == (5,)
+
+
+def test_faults_argument_configures_firing_probability():
+    conn = dogdb.wrap(_raw(), seed=1, faults={"STASH": 0.1})
+    assert conn._faults.policy.probabilities["STASH"] == 0.1

@@ -47,6 +47,8 @@ decision key の導出入力には加えない。taxonomy の追加によって
 
 1操作へ適用する fault は最大1つとする。候補は次の固定全順序で評価し、前提条件を満たし、かつ発火した最初の1件だけを適用する。未指定の障害の base weight は0である。
 
+非規範注記: base weightはmood倍率適用前の発火確率（firing probability）であり、同一操作で候補となる先順位faultをそれぞれ`j`とした後順位fault`i`の観測発生率（observed rate）は概算`p_i × Π(1−p_j)`に遮蔽される（`p_i`と`p_j`はmood倍率適用後の実効発火確率で、mood無効時は設定した発火確率に等しい）。
+
 | order | phase | category | severity | fault |
 |---:|---|---|---|---|
 | 1 | `before_execute` | `failure_injection` | `error` | BARK |

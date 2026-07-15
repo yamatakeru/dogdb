@@ -608,7 +608,6 @@ def wrap(
     session_id: str | None = None,
     include_params: bool = False,
     allow_native_passthrough: bool = False,
-    fault_probabilities: Mapping[str, float] | None = None,
     faults: Mapping[str, float] | None = None,
     stash_mode: str = "missing",
     tail_chase_mode: str = "silent",
@@ -635,9 +634,8 @@ def wrap(
     if not callable(clock):
         raise ValueError("clock must be callable")
     probabilities: dict[str, float] = {}
-    supplied = fault_probabilities if fault_probabilities is not None else faults
-    if supplied:
-        probabilities.update({str(key).upper(): value for key, value in supplied.items()})
+    if faults:
+        probabilities.update({str(key).upper(): value for key, value in faults.items()})
     unknown = set(probabilities) - KNOWN_FAULTS
     if unknown:
         raise ValueError(f"unknown faults: {', '.join(sorted(unknown))}")
