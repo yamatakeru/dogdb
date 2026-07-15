@@ -42,6 +42,11 @@ _ENFORCED_PASSTHROUGH_REASONS = frozenset(
     {"unknown_sql", "named_parameters", "unsupported_parameter_type"}
 )
 
+# Attribute passthrough warnings to caller code: the entry surfaces have
+# different depths (connection execute, cursor execute), so a fixed
+# stacklevel cannot point at user code on every path.
+_WARN_SKIP_PREFIXES = (str(Path(__file__).resolve().parent.parent),)
+
 
 class DollyNamespace:
     def __init__(self, engine: _InterventionEngine) -> None:
@@ -252,7 +257,12 @@ class _InterventionEngine:
             return
         message = f"DogDB fault injection passthrough: {reason}"
         if self._on_passthrough == "warn":
-            warnings.warn(message, DollyPassthroughWarning)
+            warnings.warn(
+                message,
+                DollyPassthroughWarning,
+                stacklevel=2,
+                skip_file_prefixes=_WARN_SKIP_PREFIXES,
+            )
         elif self._on_passthrough == "error":
             raise DollyPassthroughError(message)
 

@@ -58,6 +58,14 @@ def test_row_cap_limits_each_fetchmany_batch_to_the_remaining_observation_window
     assert cursor.offset == 1_002
 
 
+def test_row_cap_handles_exact_fetch_chunk_boundary():
+    exact = materialize(_TrackingCursor(1_000), row_cap=1_000)
+    assert len(exact.rows) == 1_000
+
+    with pytest.raises(RowCapExceeded):
+        materialize(_TrackingCursor(1_001), row_cap=1_000)
+
+
 def _database(backend: str, *, rows: int = 3):
     raw = (
         sqlite3.connect(":memory:")

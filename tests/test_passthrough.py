@@ -89,9 +89,11 @@ def test_allow_and_default_modes_silently_execute_targeted_passthrough(target, m
 def test_warn_mode_emits_public_dogdb_warning_and_executes(target):
     conn = _connection(on_passthrough="warn")
 
-    with pytest.warns(dogdb.DollyPassthroughWarning, match=target):
+    with pytest.warns(dogdb.DollyPassthroughWarning, match=target) as records:
         _exercise_target(conn, target)
 
+    # 警告はDogDB内部ではなく呼び出し元（このファイル）に帰属する。
+    assert records[0].filename == __file__
     assert conn.dolly.stats()["passthrough"] == {target: 1}
 
 
