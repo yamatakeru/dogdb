@@ -709,16 +709,23 @@ def _normalize_tables(tables: Sequence[str] | None) -> frozenset[str] | None:
 def connect(
     path: str = ":memory:",
     *,
-    backend: str = "duckdb",
+    backend: str = "sqlite",
     seed: object,
     **options: Any,
 ) -> DuckDBProxy | SQLiteProxy:
+    """Create a proxied connection, using SQLite as the default backend."""
     if backend == "sqlite":
         import sqlite3
 
         connection = sqlite3.connect(path)
     elif backend == "duckdb":
-        import duckdb
+        try:
+            import duckdb
+        except ImportError as exc:
+            raise ImportError(
+                'backend="duckdb" requires duckdb; install it with '
+                '`pip install "dogdb[duckdb]"`.'
+            ) from exc
 
         connection = duckdb.connect(path)
     else:

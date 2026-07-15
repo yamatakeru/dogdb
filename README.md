@@ -9,7 +9,11 @@ DogDB は DuckDB / SQLite の DB-API 接続を包み、SQL の意味論レベル
 
 ## クイックスタート
 
-通常インストールではDuckDBドライバに加えて、方言中立なSQL分類に使うsqlglotが依存として導入されます。SQLiteバックエンド自体はPython標準の`sqlite3`を使います。
+通常インストールでは、方言中立なSQL分類に使うsqlglotが依存として導入されます。SQLiteバックエンド自体はPython標準の`sqlite3`を使います。次のクイックスタートで使うDuckDBドライバはextraとして導入します。
+
+```console
+pip install "dogdb[duckdb]"
+```
 
 ```python
 import duckdb
@@ -31,13 +35,13 @@ print(conn.dolly.house())
 conn.dolly.return_all()
 ```
 
-SQLite なら `dogdb.connect("test.sqlite", backend="sqlite", seed=42)`、DuckDB なら `backend="duckdb"` を使えます。`seed` は必須です。既定の障害確率はすべて0で、`faults`または`fault_probabilities`に障害名と0〜1の確率を渡します。まず1障害を小さな確率で有効化し、テストが安定してから次の障害を1個ずつ足してください。
+`dogdb.connect("test.sqlite", seed=42)` は既定でSQLiteを使います（`backend="sqlite"`も明示できます）。DuckDBなら`backend="duckdb"`を指定します。`seed` は必須です。既定の障害確率はすべて0で、`faults`または`fault_probabilities`に障害名と0〜1の確率を渡します。まず1障害を小さな確率で有効化し、テストが安定してから次の障害を1個ずつ足してください。
 
 イベントを JSONL に残すには `log_path="dogdb-events.jsonl"` を指定します。生 SQL、生パラメータ、生行値は記録されません。パラメータを決定キーにも参加させたい場合だけ `include_params=True` を指定してください。
 
 ## バックエンド別の接続表面
 
-DogDB は介入コアを共有しますが、接続表面は各ネイティブドライバに合わせて分岐します。conformance が保証するのは、同一seed・同一SQL列に対する decision、障害イベント列、論理結果への障害適用結果という「介入コアの一致」です。SQLite と DuckDB の公開表面が互いに同じであることは保証せず、宣言した対応表面内でそれぞれ sqlite3／duckdb と同型になるよう検証します。クロスバックエンドの表面等価性は対象外です。
+DogDB は介入コアを共有しますが、接続表面は各ネイティブドライバに合わせて分岐し、`connect()`の既定バックエンドはSQLiteです。conformance が保証するのは、同一seed・同一SQL列に対する decision、障害イベント列、論理結果への障害適用結果という「介入コアの一致」です。SQLite と DuckDB の公開表面が互いに同じであることは保証せず、宣言した対応表面内でそれぞれ sqlite3／duckdb と同型になるよう検証します。クロスバックエンドの表面等価性は対象外です。
 
 ### SQLite
 
