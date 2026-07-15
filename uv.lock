@@ -16,23 +16,32 @@ name = "dogdb"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "duckdb" },
     { name = "sqlglot" },
+]
+
+[package.optional-dependencies]
+duckdb = [
+    { name = "duckdb" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "duckdb" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb" },
+    { name = "duckdb", marker = "extra == 'duckdb'" },
     { name = "sqlglot", specifier = ">=30.12.0,<31" },
 ]
+provides-extras = ["duckdb"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest" }]
+dev = [
+    { name = "duckdb" },
+    { name = "pytest" },
+]
 
 [[package]]
 name = "duckdb"
