@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
 
-from dogdb.adapters.base import Adapter
+from dogdb.adapters.base import Adapter, RowCapExceeded
 from dogdb.adapters.duckdb import DuckDBAdapter
 from dogdb.adapters.sqlite import SQLiteAdapter
 from dogdb.core.auto_return import AutoReturnScheduler, parse_auto_return_config
@@ -32,6 +32,7 @@ from dogdb.core.mood import MoodEngine, parse_mood_config
 from dogdb.core.sql import SQLKind, classify_sql
 from dogdb.core.stale_cache import StaleReadCache
 from dogdb.core.stats import StatsTracker
+from dogdb.core.validation import require_positive_int
 
 
 class DollyNamespace:
@@ -91,6 +92,7 @@ class _InterventionEngine:
         policy: FaultPolicy,
         log_path: str | Path | None,
         max_intervention_rows: int,
+        max_result_rows: int | None,
         house_limit: int,
         only_tables: frozenset[str] | None,
         exclude_tables: frozenset[str] | None,
@@ -123,6 +125,7 @@ class _InterventionEngine:
         self._auto_return = auto_return
         self._stale_cache = stale_cache
         self._stats = stats
+        self._max_result_rows = max_result_rows
         self._logical_tick = 0 if mood is not None or auto_return is not None else None
         self._only_tables = only_tables
         self._exclude_tables = exclude_tables
@@ -154,10 +157,13 @@ class _InterventionEngine:
             sql, params, template_fingerprint=fingerprint
         )
         scoped = self._scope_applies(classification.tables)
+        scoped_select = scoped and classification.kind is SQLKind.SELECT
+        capped_read = self._max_result_rows is not None and scoped_select
         evaluate_before = scoped and (
             self._faults.debug
             or self._faults.has_effective_weight(BEFORE_EXECUTE_PRIORITY)
         )
+        before = None
         before_consumed = False
         if evaluate_before:
             before = self._decisions.decide(
@@ -166,9 +172,28 @@ class _InterventionEngine:
                 occurrence=occurrence,
                 phase="before_execute",
             )
-            before_consumed = self._faults.before_execute(before)
-        result = adapter.execute(sql, params)
-        scoped_select = scoped and classification.kind is SQLKind.SELECT
+            # Capped reads defer the no-fire debug event until the read
+            # completes: an interrupted operation must not record any
+            # decision_evaluated event.
+            before_consumed = self._faults.before_execute(
+                before, record_debug=not capped_read
+            )
+        try:
+            result = (
+                adapter.execute(sql, params, row_cap=self._max_result_rows)
+                if capped_read
+                else adapter.execute(sql, params)
+            )
+        except RowCapExceeded:
+            assert self._max_result_rows is not None
+            self._raise_result_limit_exceeded(
+                template=template,
+                parameter=parameter,
+                occurrence=occurrence,
+                configured=self._max_result_rows,
+            )
+        if capped_read and before is not None and not before_consumed:
+            self._faults.debug_before_execute(before)
         cache_result = self._stale_cache is not None and scoped_select
         oversized_result = (
             scoped_select
@@ -238,6 +263,24 @@ class _InterventionEngine:
         if self._exclude_tables is not None:
             return tables is None or not bool(tables & self._exclude_tables)
         return True
+
+    def _raise_result_limit_exceeded(
+        self,
+        *,
+        template: str,
+        parameter: str | Callable[[], str],
+        occurrence: int,
+        configured: int,
+    ) -> None:
+        decision = self._decisions.decide(
+            template=template,
+            parameter=parameter,
+            occurrence=occurrence,
+            phase="on_result",
+        )
+        self._faults.raise_result_limit_exceeded(
+            decision, configured=configured
+        )
 
     def executemany(
         self, adapter: Adapter, sql: str, params: Sequence[Sequence[Any]]
@@ -624,6 +667,7 @@ def wrap(
     auto_return: bool | Mapping[str, Any] | Sequence[int] | None = False,
     log_path: str | Path | None = None,
     max_intervention_rows: int = 10_000,
+    max_result_rows: int | None = None,
     on_max_rows: str = "skip",
     house_limit: int = 1_000,
     only_tables: Sequence[str] | None = None,
@@ -634,6 +678,8 @@ def wrap(
         raise ValueError("only_tables and exclude_tables are mutually exclusive")
     if not callable(clock):
         raise ValueError("clock must be callable")
+    if max_result_rows is not None:
+        max_result_rows = require_positive_int(max_result_rows, "max_result_rows")
     probabilities: dict[str, float] = {}
     supplied = fault_probabilities if fault_probabilities is not None else faults
     if supplied:
@@ -685,6 +731,7 @@ def wrap(
         ),
         log_path=log_path,
         max_intervention_rows=max_intervention_rows,
+        max_result_rows=max_result_rows,
         house_limit=house_limit,
         only_tables=_normalize_tables(only_tables),
         exclude_tables=_normalize_tables(exclude_tables),

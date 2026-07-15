@@ -48,7 +48,7 @@ issue本文は`row_cap`適用範囲（全操作か、分類・スコープ済み
 
 この区別（decision keyの導出 ≠ on_resultのfault評価）はissue本文が明示的に述べたものではなく、既存契約の必須フィールド表から逆算した設計解釈である（統括レビュー2026-07-15で既存コードとの突合により確定——「未解決の疑問」参照）。
 
-実装順序は次のとおりとする: ①`before_execute`評価（既存経路のまま。BARK等はここで先行発火し得る）→②`row_cap`付きアダプタ読み取り→③中断シグナル受領時、mood・自動返却の論理時計を通常経路と同一のフックで前進→④中断した操作のoccurrence消費とdecision導出は既存の`max_intervention_rows`超過経路と同一の規則に従い（二重消費なし）、そのDecisionから`limit_exceeded`を構築・記録→⑤`DollyLimitError`送出。`FaultEngine.on_result`は呼ばず、`decision_evaluated`は生成されない。③〜⑤（時計前進・`decision_evaluated`非生成・イベント→例外の順序）はテストで検証する（受け入れ基準の対応項目に含まれる）。
+実装順序は次のとおりとする: ①`before_execute`評価（既存経路のまま。BARK等はここで先行発火し得る）→②`row_cap`付きアダプタ読み取り→③中断シグナル受領時、中断した操作のoccurrence消費とdecision導出は既存の`max_intervention_rows`超過経路と同一の規則に従い（二重消費なし）、そのDecisionから`limit_exceeded`を構築・記録→④`DollyLimitError`送出。`FaultEngine.on_result`は呼ばず、`decision_evaluated`は生成されない。mood・自動返却の論理時計は従来どおり操作開始時の共通フックで前進しており、中断はこれを妨げない（中断した操作も他の操作と同様に1操作として数える）。時計のフック位置を読み取り後へ動かしてはならない——動かすと、cap未超過の操作でも`before_execute`のmood状態評価や自動返却の反映タイミングが非capped時とずれる。ただし`before_execute`のdebugイベント（発火なし時の`decision_evaluated`）だけは読了後まで遅延する。中断時に当該操作の`decision_evaluated`を一切記録しないためであり、発火判定そのものは①の位置で行う。時計前進・`decision_evaluated`非生成・イベント→例外の順序はテストで検証する（受け入れ基準の対応項目に含まれる）。
 
 ### D4: fetchmanyのバッチサイズは実装時の裁量とする
 

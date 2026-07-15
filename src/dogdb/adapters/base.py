@@ -8,13 +8,24 @@ from typing import Any, Protocol
 from dogdb.core.models import LogicalResult
 
 
+_FETCH_CHUNK_SIZE = 1_000
+
+
+class RowCapExceeded(Exception):
+    """Internal signal raised when an adapter observes row_cap + 1 rows."""
+
+
 class Adapter(Protocol):
     """Backend contract consumed by the connection proxy."""
 
     sql_capable_attrs: frozenset[str] = frozenset()
 
     def execute(
-        self, sql: str, params: Sequence[Any] | None = None
+        self,
+        sql: str,
+        params: Sequence[Any] | None = None,
+        *,
+        row_cap: int | None = None,
     ) -> LogicalResult: ...
 
     def executemany(
@@ -34,4 +45,27 @@ def materialize(cursor: Any) -> LogicalResult:
     columns = [str(column[0]) for column in description]
     column_types = [column[1] for column in description]
     rows = [tuple(row) for row in cursor.fetchall()]
+    return LogicalResult(columns, rows, len(rows), column_types)
+
+
+def materialize_with_row_cap(
+    cursor: Any, *, row_cap: int | None = None
+) -> LogicalResult:
+    if row_cap is None:
+        return materialize(cursor)
+
+    description = cursor.description
+    if description is None:
+        return LogicalResult([], [], getattr(cursor, "rowcount", -1))
+    columns = [str(column[0]) for column in description]
+    column_types = [column[1] for column in description]
+    rows: list[tuple[Any, ...]] = []
+    while len(rows) <= row_cap:
+        amount = min(_FETCH_CHUNK_SIZE, row_cap + 1 - len(rows))
+        batch = cursor.fetchmany(amount)
+        rows.extend(tuple(row) for row in batch)
+        if len(rows) > row_cap:
+            raise RowCapExceeded
+        if not batch:
+            break
     return LogicalResult(columns, rows, len(rows), column_types)
