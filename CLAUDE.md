@@ -14,7 +14,7 @@ Use Fable for planning, coordination, deep analysis, and insight generation. Del
 
 For comparison-shaped tasks, follow the Fusion panel policy in AGENTS.md; implementation still goes to Codex. A single Opus pass is the fallback only for the narrow seat above—voice, nuance, or a latency-bound inline read—since for any other second opinion a cheap panel wins on cost, quota, and (on breadth-bound work) coverage.
 
-In the AGENTS.md parallel-implementation (worktree) strategy, the "実装ワーカー" is Codex under this harness.
+In the AGENTS.md parallel-implementation (worktree) strategy, the "実装ワーカー" is Codex under this harness. When delegating into a worktree, launch the job with that worktree as its cwd — the launch cwd determines the worker's writable sandbox root as well as where its job state lives. If a wrapper subagent cannot control the launch cwd, invoke the delegation runtime directly with the worktree as cwd instead of routing through the wrapper.
 
 ## Working with subagents
 
