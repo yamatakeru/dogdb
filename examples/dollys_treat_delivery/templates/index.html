@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A guided DogDB tutorial about one suspicious delivery shift.">
+    <title>Dolly's First Shift | DogDB</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="masthead">
+        <a class="brand" href="https://github.com/yamatakeru/dogdb" aria-label="DogDB repository">
+          <span class="brand-mark" aria-hidden="true">D/DB</span>
+          <span>
+            <strong>Dolly's Treat Delivery</strong>
+            <small>Powered by DogDB</small>
+          </span>
+        </a>
+        <div class="employee-badge">
+          <img src="{{ url_for('dolly_image') }}" alt="Dolly, wearing a bin lid around her neck">
+          <span>
+            <small>ROUTE ASSISTANT</small>
+            <strong>Dolly</strong>
+          </span>
+          <b title="Employment status: unclear">?</b>
+        </div>
+      </header>
+
+      <section class="hero" aria-labelledby="tutorial-title">
+        <p class="eyebrow">INTERACTIVE TUTORIAL / SHIFT 01</p>
+        <h1 id="tutorial-title">Dolly's First Shift</h1>
+        <p class="hero-copy">
+          One order. One missing <code>ORDER BY</code>. One delivery assistant
+          nobody remembers approving.
+        </p>
+        <div id="shift-status" class="shift-status" data-state="normal">
+          <span class="status-light" aria-hidden="true"></span>
+          <span id="system-status">All systems operational</span>
+          <span class="shift-id">ORDER TREAT-042</span>
+        </div>
+      </section>
+
+      <nav class="act-nav" aria-label="Tutorial acts">
+        <button class="act-button is-current" type="button" data-act="normal">
+          <span>01</span>
+          <strong>Normal route</strong>
+          <small>The happy path</small>
+        </button>
+        <button class="act-button" type="button" data-act="dolly" disabled>
+          <span>02</span>
+          <strong>Dolly clocks in</strong>
+          <small>Inject SHUFFLE</small>
+        </button>
+        <button class="act-button" type="button" data-act="fixed" disabled>
+          <span>03</span>
+          <strong>Fix the manifest</strong>
+          <small>Add ORDER BY</small>
+        </button>
+      </nav>
+
+      <section class="dispatch-board" aria-labelledby="board-title">
+        <div class="board-heading">
+          <div>
+            <p class="eyebrow">LIVE ORDER TRACE</p>
+            <h2 id="board-title">Event delivery route</h2>
+          </div>
+          <p id="run-state" class="run-state" aria-live="polite">Select Normal route to begin.</p>
+        </div>
+
+        <div class="route-grid">
+          <section class="route-panel source-panel" aria-labelledby="source-title">
+            <div class="panel-label">
+              <span>01</span>
+              <div>
+                <small>SQLITE</small>
+                <h3 id="source-title">Recorded events</h3>
+              </div>
+            </div>
+            <p class="panel-note">The known chronological facts.</p>
+            <div id="source-events" class="event-stack empty-stack">
+              <p>Waiting for dispatch</p>
+            </div>
+          </section>
+
+          <section class="route-panel dolly-panel" aria-labelledby="route-title">
+            <div class="panel-label">
+              <span>02</span>
+              <div>
+                <small>DOGDB PROXY</small>
+                <h3 id="route-title">Delivery route</h3>
+              </div>
+            </div>
+            <p class="panel-note">Rows as delivered to the application.</p>
+            <div id="dolly-stage" class="dolly-stage" data-mode="normal">
+              <div class="dolly-photo" aria-hidden="true">
+                <span>UNSCHEDULED ASSISTANT</span>
+                <img src="{{ url_for('dolly_image') }}" alt="">
+              </div>
+              <p id="dolly-caption" class="dolly-caption">Orientation mode. Paws off.</p>
+              <div id="delivered-events" class="event-stack empty-stack">
+                <p>No rows in transit</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="route-panel tracker-panel" aria-labelledby="tracker-title">
+            <div class="panel-label">
+              <span>03</span>
+              <div>
+                <small>CUSTOMER APP</small>
+                <h3 id="tracker-title">Order tracker</h3>
+              </div>
+            </div>
+            <p class="panel-note">The app trusts the last returned row.</p>
+            <div class="order-summary">
+              <small>ORDER CONTENTS</small>
+              <strong id="order-product">Bone Biscuit Refill</strong>
+            </div>
+            <div id="tracker-result" class="tracker-result is-waiting" aria-live="polite">
+              <small>CURRENT STATUS</small>
+              <strong>WAITING</strong>
+              <p>Run the first act to load this order.</p>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="lesson" class="lesson" aria-live="polite">
+        <p class="eyebrow">SHIFT BRIEFING</p>
+        <h2>Why can this pass?</h2>
+        <p>
+          Without <code>ORDER BY</code>, SQL does not promise row order. The happy
+          path can look correct while the application quietly depends on an accident.
+        </p>
+      </section>
+
+      <details id="technical-report" class="technical-report">
+        <summary>
+          <span>
+            <small id="report-kicker">RUN REPORT</small>
+            <strong id="report-title">Technical report will appear here</strong>
+          </span>
+          <span class="summary-action">OPEN</span>
+        </summary>
+        <div class="report-body">
+          <section>
+            <p class="eyebrow">QUERY</p>
+            <pre><code id="sql-code">Run an act to inspect its SQL.</code></pre>
+          </section>
+          <section>
+            <p class="eyebrow">DOGDB EVENT</p>
+            <div id="event-report" class="event-report">
+              <p>No execution yet.</p>
+            </div>
+          </section>
+          <dl class="run-metadata">
+            <div><dt>seed</dt><dd id="meta-seed">-</dd></div>
+            <div><dt>session</dt><dd id="meta-session">-</dd></div>
+          </dl>
+        </div>
+      </details>
+
+      <footer>
+        <p>Every treat arrives exactly once. Allegedly.</p>
+        <p>DogDB is a deterministic SQL fault-injection tool for tests.</p>
+      </footer>
+    </main>
+  </body>
+</html>
