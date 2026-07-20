@@ -2,7 +2,7 @@ const actCopy = {
   normal: {
     running: "Running the happy-path check...",
     done: "Happy-path check passed. The accidental assumption remains hidden.",
-    dolly: "Orientation mode. Paws off.",
+    dolly: "Rows delivered unchanged. Paws off.",
     lessonTitle: "The test passes. The query is still wrong.",
     lesson:
       "SQLite happened to return insertion order, so the app saw DELIVERED last. SQL never promised that order.",
@@ -13,7 +13,7 @@ const actCopy = {
   dolly: {
     running: "Dolly has joined the delivery route...",
     done: "Resilience check failed. The customer saw an older status.",
-    dolly: "Nobody remembers approving this.",
+    dolly: "Rows shuffled. Nobody approved this.",
     lessonTitle: "DogDB exposed the hidden ordering dependency.",
     lesson:
       "SHUFFLE changed only row order. The query succeeded, but the app interpreted the last row as the latest event.",

@@ -314,7 +314,6 @@ code {
 
 .route-panel {
   min-width: 0;
-  min-height: 490px;
   padding: 19px;
   background: #fbfaf5;
 }
@@ -464,9 +463,6 @@ code {
 }
 
 .dolly-caption {
-  order: 1;
-  min-height: 34px;
-  margin: 0 0 12px;
   padding: 8px 10px;
   background: var(--ink);
   color: white;
@@ -740,11 +736,16 @@ footer p {
 }
 
 @media (min-width: 851px) {
+  .source-panel .panel-note,
+  .dolly-panel .panel-note {
+    min-height: 34px;
+  }
+
   .dolly-stage[data-mode="dolly"] .dolly-photo,
   .dolly-stage[data-mode="fixed"] .dolly-photo {
     position: absolute;
     z-index: 2;
-    top: 60px;
+    top: 14px;
     right: 14px;
     margin: 0;
   }
@@ -758,10 +759,6 @@ footer p {
 @media (max-width: 850px) {
   .route-grid {
     grid-template-columns: 1fr;
-  }
-
-  .route-panel {
-    min-height: auto;
   }
 
   .route-panel + .route-panel {
