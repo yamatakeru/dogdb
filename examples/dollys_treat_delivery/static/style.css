@@ -739,6 +739,22 @@ footer p {
   }
 }
 
+@media (min-width: 851px) {
+  .dolly-stage[data-mode="dolly"] .dolly-photo,
+  .dolly-stage[data-mode="fixed"] .dolly-photo {
+    position: absolute;
+    z-index: 2;
+    top: 60px;
+    right: 14px;
+    margin: 0;
+  }
+
+  .dolly-stage[data-mode="dolly"] .event-card,
+  .dolly-stage[data-mode="fixed"] .event-card {
+    padding-right: 170px;
+  }
+}
+
 @media (max-width: 850px) {
   .route-grid {
     grid-template-columns: 1fr;
