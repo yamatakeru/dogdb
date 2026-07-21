@@ -153,6 +153,16 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 ## 使用例
 
+### インタラクティブチュートリアル: Dolly's First Shift
+
+[Dolly's Treat Delivery](examples/dollys_treat_delivery/)は、正常時には見えない暗黙の行順序依存を、SHUFFLEで発見して`ORDER BY`で修正するまでを体験するローカルWebチュートリアルです。ドリーが配送経路へ入ると、成功したSQLの結果だけが静かに並べ替わります。
+
+```console
+uv run python -m examples.dollys_treat_delivery
+```
+
+既存の短い例は、機能別のレシピとして利用できます。
+
 - [STASH と house](examples/01_stash_and_house.py) — 隠れた行の粘着性と `return_all()` による復帰を確認します。
 - [SHUFFLE と暗黙順序のバグ](examples/02_shuffle_ordering_bug.py) — `ORDER BY` の有無による集計結果の違いを比較します。
 - [IGNORE の再試行](examples/03_ignore_retry.py) — `retryable` を見て安全に再試行するパターンを示します。
