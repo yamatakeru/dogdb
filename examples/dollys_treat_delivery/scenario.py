@@ -58,6 +58,7 @@ def run_act(act: str) -> dict[str, Any]:
         "expected_status": expected_status,
         "observed_status": observed_status,
         "passed": observed_status == expected_status,
+        "faults": faults,
         "events": events,
         "seed": SEED,
         "session_id": SESSION_ID,

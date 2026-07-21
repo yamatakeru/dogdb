@@ -50,6 +50,7 @@ const reportKicker = document.querySelector("#report-kicker");
 const reportTitle = document.querySelector("#report-title");
 const sqlCode = document.querySelector("#sql-code");
 const eventReport = document.querySelector("#event-report");
+const metaFaults = document.querySelector("#meta-faults");
 const metaSeed = document.querySelector("#meta-seed");
 const metaSession = document.querySelector("#meta-session");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -61,12 +62,11 @@ buttons.forEach((button) => {
 async function runAct(act, selectedButton) {
   const copy = actCopy[act];
   setBusy(true);
-  report.open = false;
   runState.textContent = copy.running;
   dollyStage.dataset.mode = act;
   dollyCaption.textContent = copy.dolly;
   clearResults();
-  resetReport();
+  prepareReport();
 
   try {
     const response = await fetch(`/api/acts/${act}`, { method: "POST" });
@@ -85,10 +85,12 @@ async function runAct(act, selectedButton) {
     runState.textContent = copy.done;
     completeAct(selectedButton);
   } catch (error) {
+    console.error("Tutorial run failed", { act, error });
     runState.textContent = error.message;
     trackerResult.className = "tracker-result is-failed";
     trackerResult.querySelector("strong").textContent = "ERROR";
     trackerResult.querySelector("p").textContent = "The local tutorial could not complete this run.";
+    renderReportError(error);
   } finally {
     setBusy(false);
   }
@@ -104,16 +106,31 @@ function clearResults() {
   trackerResult.querySelector("p").textContent = "Reading the delivered event sequence...";
 }
 
-function resetReport() {
-  reportKicker.textContent = "RUN REPORT";
-  reportTitle.textContent = "Technical report will appear here";
-  sqlCode.textContent = "Run an act to inspect its SQL.";
+function prepareReport() {
+  reportKicker.textContent = "RUNNING";
+  reportTitle.textContent = "Updating technical report...";
+  sqlCode.textContent = "Waiting for this act to complete.";
+  metaFaults.textContent = "-";
   metaSeed.textContent = "-";
   metaSession.textContent = "-";
 
-  const emptyReport = document.createElement("p");
-  emptyReport.textContent = "No execution yet.";
-  eventReport.replaceChildren(emptyReport);
+  const pending = document.createElement("p");
+  pending.className = "quiet-event";
+  pending.textContent = "Collecting DogDB events...";
+  eventReport.replaceChildren(pending);
+}
+
+function renderReportError(error) {
+  reportKicker.textContent = "RUN ERROR";
+  reportTitle.textContent = "Technical report unavailable";
+  sqlCode.textContent = "The act did not complete.";
+  metaFaults.textContent = "unavailable";
+  metaSeed.textContent = "unavailable";
+  metaSession.textContent = "unavailable";
+
+  const failure = document.createElement("p");
+  failure.textContent = error.message;
+  eventReport.replaceChildren(failure);
 }
 
 function renderSource(events) {
@@ -175,6 +192,9 @@ function renderReport(result, copy) {
   reportKicker.textContent = copy.reportKicker;
   reportTitle.textContent = copy.reportTitle;
   sqlCode.textContent = result.sql;
+  metaFaults.textContent = Object.entries(result.faults)
+    .map(([fault, weight]) => `${fault}=${Number(weight).toFixed(1)}`)
+    .join(", ") || "none";
   metaSeed.textContent = result.seed;
   metaSession.textContent = result.session_id;
   eventReport.replaceChildren();
