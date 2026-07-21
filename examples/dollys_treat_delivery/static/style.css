@@ -187,7 +187,8 @@ code {
   box-shadow: 0 0 0 4px rgb(47 167 125 / 16%);
 }
 
-.shift-status[data-state="dolly"] .status-light {
+.shift-status[data-state="dolly"] .status-light,
+.shift-status[data-state="error"] .status-light {
   background: var(--red);
   box-shadow: 0 0 0 4px rgb(167 50 41 / 16%);
 }
