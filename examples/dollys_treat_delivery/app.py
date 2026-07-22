@@ -19,13 +19,14 @@ def create_app() -> Flask:
     def index() -> str:
         return render_template("index.html")
 
-    @app.post("/api/acts/<act>")
+    @app.get("/api/acts/<act>.json")
     def execute_act(act: str) -> Response:
         if act not in ACTS:
             abort(404)
 
-        result = run_act(act)
-        return jsonify(result)
+        response = jsonify(run_act(act))
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/assets/dolly.png")
     def dolly_image() -> Response:
