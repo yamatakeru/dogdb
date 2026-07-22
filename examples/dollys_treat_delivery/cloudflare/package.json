@@ -1,0 +1,13 @@
+{
+  "name": "dogdb-dolly-cloudflare",
+  "private": true,
+  "scripts": {
+    "build": "uv run pywrangler sync && uv run python build.py",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
+    "dev": "npm run build && wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "4.112.0"
+  }
+}

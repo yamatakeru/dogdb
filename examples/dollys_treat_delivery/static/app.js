@@ -88,15 +88,15 @@ async function runAct(act, selectedButton) {
     console.error("Tutorial run failed", { act, error });
     shiftStatus.dataset.state = "error";
     systemStatus.textContent = "Tutorial run failed";
-    orderProduct.textContent = "Bone Biscuit Refill";
+    orderProduct.textContent = "Unavailable";
     dollyCaption.textContent = "Delivery interrupted. No route result available.";
     runState.textContent = error.message;
     trackerResult.className = "tracker-result is-failed";
     trackerResult.querySelector("strong").textContent = "ERROR";
-    trackerResult.querySelector("p").textContent = "The local tutorial could not complete this run.";
+    trackerResult.querySelector("p").textContent = "The tutorial could not complete this run.";
     lesson.querySelector("h2").textContent = "This act did not complete.";
     lesson.querySelector("p:last-child").textContent =
-      "Try again. If the problem continues, reload the page and check the tutorial server.";
+      "Try again. If the problem continues, reload the page and check the tutorial service.";
     renderReportError(error);
   } finally {
     setBusy(false);
