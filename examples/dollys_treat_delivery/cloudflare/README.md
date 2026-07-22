@@ -1,12 +1,13 @@
-# Cloudflare deployment spike
+# Cloudflare static deployment
 
-This subproject checks whether Dolly's First Shift can run within the
-Cloudflare Workers Free limits without changing DogDB's published runtime
-dependencies.
+This subproject deploys Dolly's First Shift as Cloudflare Workers Static
+Assets. It does not run a Worker or consume Worker CPU for tutorial requests.
 
-The build copies the shared tutorial scenario and DogDB source into ignored
-Wrangler build directories. The local Flask tutorial remains the reference
-development entrypoint.
+The build runs the shared tutorial scenario with the real DogDB and in-memory
+SQLite, then writes each deterministic result to `dist/api/acts/<act>.json`.
+The hosted UI replays those build-generated traces. The local Flask tutorial
+uses the same scenario, response shape, and frontend, but executes DogDB again
+for every act request.
 
 ## Local runtime
 
@@ -15,11 +16,10 @@ npm install
 npm run dev
 ```
 
-Run the command from this directory. Static requests are served by Workers
-Static Assets; only `/api/acts/<act>` falls through to the Python Worker.
-Run `npm install` once before the first invocation to install the pinned
-Wrangler version. The npm scripts synchronize Python dependencies before they
-copy DogDB and the shared tutorial sources into the deployment bundle.
+Run the command from this directory. `npm run build` uses the repository's uv
+environment to generate the traces before Wrangler serves the resulting static
+site. Run `npm install` once before the first invocation to install the pinned
+Wrangler version.
 
 ## Deployment checks
 
@@ -28,11 +28,11 @@ npm run deploy:dry-run
 npm run deploy
 ```
 
-The spike passes only when the compressed Worker is below 3 MB, all three acts
-match the CPython behavior, static assets bypass Worker execution, and deployed
-invocations stay comfortably below the Free plan's 10 ms CPU limit.
+The deployment is ready when all three generated traces match `run_act()`, the
+static site builds without a Worker entrypoint, and the browser completes all
+three acts.
 
-## Result
+## Why this is static
 
 Measured on 2026-07-22 with `workers-py==1.15.0`, Wrangler 4.112.0, and the
 Cloudflare NRT location:
@@ -57,10 +57,10 @@ make this workload reliably Free-plan compatible.
 Wrangler 4.113.0 shipped a `workerd` binary that failed local macOS signature
 validation during this spike, so the subproject pins 4.112.0. Its Miniflare
 dependency includes the reported Sharp advisories; the affected image-processing
-path is not used by this deployment, but the pin should be revisited before this
-spike becomes maintained production configuration.
+path is not used by this deployment, but the pin and advisories should be
+revisited during the next Wrangler upgrade.
 
-The live Python Worker is therefore technically viable on Workers Paid, but it
-should not become the README's primary hosted demo while zero-cost operation is
-a requirement. A static build-generated trace would be the next zero-cost
-option; it was not implemented by this spike.
+The live Python Worker is technically viable on Workers Paid, but it is not
+reliably compatible with the Free plan's CPU budget. Static Assets preserve the
+tutorial's visible behavior and generate every displayed result with the real
+DogDB implementation while moving that execution to deployment time.

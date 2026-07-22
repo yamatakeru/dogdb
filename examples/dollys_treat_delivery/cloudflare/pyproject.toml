@@ -1,9 +1,0 @@
-[project]
-name = "dogdb-dolly-cloudflare"
-version = "0.1.0"
-description = "Cloudflare deployment spike for Dolly's First Shift"
-requires-python = ">=3.13.2"
-dependencies = ["sqlglot>=30.12.0,<31"]
-
-[dependency-groups]
-dev = ["workers-py==1.15.0"]

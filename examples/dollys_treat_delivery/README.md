@@ -1,10 +1,16 @@
 # Dolly's First Shift
 
-`Dolly's Treat Delivery` は、DogDBがアプリケーションの暗黙のSQL順序依存を見つける過程を、ローカルWeb UIで体験するチュートリアルです。
+`Dolly's Treat Delivery` は、DogDBがアプリケーションの暗黙のSQL順序依存を見つける過程をWeb UIで体験するチュートリアルです。
 
 ドリーはデータベースを壊しません。SQLiteが正常に返した行をアプリケーションへ届ける途中で、順番を変えるだけです。クエリは成功するため、アプリケーションが返却順を誤って信用していると、顧客には古い注文状態が表示されます。
 
-## 起動
+## 公開デモ
+
+[Cloudflare上の公開デモ](https://dogdb-dolly-demo-spike.yamato-y.workers.dev)は、サーバー処理を必要としないStatic Assetsとして無料配信しています。表示する結果は固定のサンプルデータではなく、デプロイのビルド時に実際のDogDBとin-memory SQLiteで[`scenario.py`](scenario.py)を実行して生成したtraceです。
+
+公開版ではボタンを押した時点でDogDBを再実行せず、ビルド済みのtraceを読み込んで同じ画面を再生します。クリックごとのDogDB実行を確認する場合は、次のローカル版を利用してください。ローカル版と公開版は、シナリオ実装、レスポンス形式、HTML、CSS、JavaScriptを共有しています。
+
+## ローカル実行
 
 リポジトリのルートで次を実行します。
 
@@ -43,7 +49,7 @@ order by sequence
 
 ## 実データによる演出
 
-Web UIのカード順、顧客向け状態、Incident reportは、すべて[`scenario.py`](scenario.py)が実行したSQLiteの結果と`conn.dolly.log()`から生成します。画面表示のためにSHUFFLE結果を別途作ってはいません。
+Web UIのカード順、顧客向け状態、Incident reportは、すべて`scenario.py`が実行したSQLiteの結果と`conn.dolly.log()`から生成します。画面表示のためにSHUFFLE結果を別途作ってはいません。ローカル版はクリック時に生成し、公開版はデプロイのビルド時に生成します。
 
 各幕は新しいin-memory SQLite接続から開始し、同じ`seed=42`と`session_id="dolly-first-shift"`を使います。そのためブラウザで何度実行しても、SHUFFLE幕では同じ返却順と同じイベントIDを再現します。
 
@@ -51,9 +57,9 @@ Web UIのカード順、顧客向け状態、Incident reportは、すべて[`sce
 
 ```text
 Browser
-  -> POST /api/acts/<act>
-  -> fresh SQLite database
-  -> dogdb.wrap(...)
+  -> GET /api/acts/<act>.json
+  -> local: fresh SQLite database -> dogdb.wrap(...)
+  -> hosted: build-generated JSON from the same scenario
   -> application reads the last delivered row
   -> actual rows and DogDB events returned as JSON
   -> browser animates that trace

@@ -1,9 +1,12 @@
-"""Assemble the shared tutorial code and static assets for Wrangler."""
+"""Build Dolly's First Shift as a static Cloudflare deployment."""
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
+
+from examples.dollys_treat_delivery.scenario import ACTS, run_act
 
 
 CLOUDFLARE_ROOT = Path(__file__).resolve().parent
@@ -12,29 +15,17 @@ REPOSITORY_ROOT = DEMO_ROOT.parents[1]
 
 
 def main() -> None:
-    _copy_runtime_modules()
     _build_static_assets()
-
-
-def _copy_runtime_modules() -> None:
-    shutil.copy2(DEMO_ROOT / "scenario.py", CLOUDFLARE_ROOT / "src" / "scenario.py")
-
-    destination = CLOUDFLARE_ROOT / "python_modules" / "dogdb"
-    if destination.exists():
-        shutil.rmtree(destination)
-    shutil.copytree(
-        REPOSITORY_ROOT / "src" / "dogdb",
-        destination,
-        ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
-    )
 
 
 def _build_static_assets() -> None:
     destination = CLOUDFLARE_ROOT / "dist"
+    acts_destination = destination / "api" / "acts"
     if destination.exists():
         shutil.rmtree(destination)
     (destination / "static").mkdir(parents=True)
     (destination / "assets").mkdir()
+    acts_destination.mkdir(parents=True)
 
     template = (DEMO_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
     replacements = {
@@ -54,7 +45,15 @@ def _build_static_assets() -> None:
         REPOSITORY_ROOT / "docs" / "assets" / "dolly.png",
         destination / "assets",
     )
+    for act in sorted(ACTS):
+        payload = json.dumps(run_act(act), indent=2, sort_keys=True) + "\n"
+        (acts_destination / f"{act}.json").write_text(
+            payload,
+            encoding="utf-8",
+        )
     (destination / "_headers").write_text(
+        "/api/acts/*\n"
+        "  Cache-Control: no-store\n\n"
         "/*\n"
         "  X-Content-Type-Options: nosniff\n"
         "  Referrer-Policy: no-referrer\n"

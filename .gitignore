@@ -198,12 +198,9 @@ cython_debug/
 
 # DogDB
 .fusion-runs/
-examples/dollys_treat_delivery/cloudflare/.venv-workers/
 examples/dollys_treat_delivery/cloudflare/.wrangler/
 examples/dollys_treat_delivery/cloudflare/dist/
 examples/dollys_treat_delivery/cloudflare/node_modules/
-examples/dollys_treat_delivery/cloudflare/python_modules/
-examples/dollys_treat_delivery/cloudflare/src/scenario.py
 
 # Visual Studio Code
 #   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore

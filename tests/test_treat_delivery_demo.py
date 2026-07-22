@@ -52,14 +52,14 @@ def test_dolly_shift_is_deterministic():
     assert run_act("dolly") == run_act("dolly")
 
 
-def test_tutorial_routes_and_static_shell():
+def test_tutorial_routes_and_static_shell() -> None:
     app = create_app()
     app.config["TESTING"] = True
 
     with app.test_client() as client:
         page = client.get("/")
-        result = client.post("/api/acts/dolly")
-        unknown = client.post("/api/acts/unknown")
+        result = client.get("/api/acts/dolly.json")
+        unknown = client.get("/api/acts/unknown.json")
         image = client.get("/assets/dolly.png")
 
     assert page.status_code == 200
@@ -68,6 +68,7 @@ def test_tutorial_routes_and_static_shell():
     assert b'id="technical-report"' in page.data
     assert b'id="meta-faults"' in page.data
     assert result.status_code == 200
+    assert result.headers["Cache-Control"] == "no-store"
     result_body = result.get_json()
     assert result_body["faults"] == {"SHUFFLE": 1.0}
     assert result_body["events"][0]["fault"] == "SHUFFLE"

@@ -69,7 +69,7 @@ async function runAct(act, selectedButton) {
   prepareReport();
 
   try {
-    const response = await fetch(`/api/acts/${act}`, { method: "POST" });
+    const response = await fetch(`/api/acts/${act}.json`);
     if (!response.ok) {
       throw new Error(`Tutorial request failed (${response.status})`);
     }
