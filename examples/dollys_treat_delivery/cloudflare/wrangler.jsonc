@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "dogdb-dolly-demo-spike",
+  "name": "dogdb-dolly-demo",
   "compatibility_date": "2026-07-21",
   "workers_dev": true,
   "preview_urls": false,

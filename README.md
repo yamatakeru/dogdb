@@ -157,7 +157,7 @@ assert conn.dolly.log()[0].details["delay_ms"] > 0
 
 [Dolly's Treat Delivery](examples/dollys_treat_delivery/)は、正常時には見えない暗黙の行順序依存を、SHUFFLEで発見して`ORDER BY`で修正するまでを体験するWebチュートリアルです。ドリーが配送経路へ入ると、成功したSQLの結果だけが静かに並べ替わります。
 
-[公開デモをブラウザで試す](https://dogdb-dolly-demo-spike.yamato-y.workers.dev)。公開デモの結果は、デプロイ時に実際のDogDBとSQLiteを実行して生成しています。ローカル版では、各幕をクリックするたびに同じシナリオを実行できます。
+[公開デモをブラウザで試す](https://dogdb-dolly-demo.yamato-y.workers.dev)。公開デモの結果は、デプロイ時に実際のDogDBとSQLiteを実行して生成しています。ローカル版では、各幕をクリックするたびに同じシナリオを実行できます。
 
 ```console
 uv run python -m examples.dollys_treat_delivery

@@ -38,29 +38,45 @@ def _build_static_assets() -> None:
     if "{{" in template or "}}" in template:
         raise ValueError("unresolved template expression in tutorial HTML")
 
-    (destination / "index.html").write_text(template, encoding="utf-8")
-    shutil.copy2(DEMO_ROOT / "static" / "style.css", destination / "static")
-    shutil.copy2(DEMO_ROOT / "static" / "app.js", destination / "static")
-    shutil.copy2(
+    _ = (destination / "index.html").write_text(template, encoding="utf-8")
+    _ = shutil.copy2(DEMO_ROOT / "static" / "style.css", destination / "static")
+    _ = shutil.copy2(DEMO_ROOT / "static" / "app.js", destination / "static")
+    _ = shutil.copy2(
         REPOSITORY_ROOT / "docs" / "assets" / "dolly.png",
         destination / "assets",
     )
     for act in sorted(ACTS):
         payload = json.dumps(run_act(act), indent=2, sort_keys=True) + "\n"
-        (acts_destination / f"{act}.json").write_text(
+        _ = (acts_destination / f"{act}.json").write_text(
             payload,
             encoding="utf-8",
         )
-    (destination / "_headers").write_text(
-        "/api/acts/*\n"
-        "  Cache-Control: no-store\n\n"
-        "/*\n"
-        "  X-Content-Type-Options: nosniff\n"
-        "  Referrer-Policy: no-referrer\n"
-        "  X-Frame-Options: DENY\n"
-        "  Content-Security-Policy: default-src 'self'; img-src 'self'; "
-        "script-src 'self'; style-src 'self'; base-uri 'none'; "
-        "frame-ancestors 'none'; form-action 'none'\n",
+    content_security_policy = " ".join(
+        (
+            "default-src 'self';",
+            "img-src 'self';",
+            "script-src 'self';",
+            "style-src 'self';",
+            "base-uri 'none';",
+            "frame-ancestors 'none';",
+            "form-action 'none'",
+        )
+    )
+    headers = "\n".join(
+        (
+            "/api/acts/*",
+            "  Cache-Control: no-store",
+            "",
+            "/*",
+            "  X-Content-Type-Options: nosniff",
+            "  Referrer-Policy: no-referrer",
+            "  X-Frame-Options: DENY",
+            f"  Content-Security-Policy: {content_security_policy}",
+            "",
+        )
+    )
+    _ = (destination / "_headers").write_text(
+        headers,
         encoding="utf-8",
     )
 

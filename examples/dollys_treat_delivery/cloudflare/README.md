@@ -55,7 +55,7 @@ budget. Cloudflare permits occasional overruns, so successful responses do not
 make this workload reliably Free-plan compatible.
 
 Wrangler 4.113.0 shipped a `workerd` binary that failed local macOS signature
-validation during this spike, so the subproject pins 4.112.0. Its Miniflare
+validation during the live-Worker evaluation, so the subproject pins 4.112.0. Its Miniflare
 dependency includes the reported Sharp advisories; the affected image-processing
 path is not used by this deployment, but the pin and advisories should be
 revisited during the next Wrangler upgrade.

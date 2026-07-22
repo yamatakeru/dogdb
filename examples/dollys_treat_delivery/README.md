@@ -6,7 +6,7 @@
 
 ## 公開デモ
 
-[Cloudflare上の公開デモ](https://dogdb-dolly-demo-spike.yamato-y.workers.dev)は、サーバー処理を必要としないStatic Assetsとして無料配信しています。表示する結果は固定のサンプルデータではなく、デプロイのビルド時に実際のDogDBとin-memory SQLiteで[`scenario.py`](scenario.py)を実行して生成したtraceです。
+[Cloudflare上の公開デモ](https://dogdb-dolly-demo.yamato-y.workers.dev)は、サーバー処理を必要としないStatic Assetsとして無料配信しています。表示する結果は固定のサンプルデータではなく、デプロイのビルド時に実際のDogDBとin-memory SQLiteで[`scenario.py`](scenario.py)を実行して生成したtraceです。
 
 公開版ではボタンを押した時点でDogDBを再実行せず、ビルド済みのtraceを読み込んで同じ画面を再生します。クリックごとのDogDB実行を確認する場合は、次のローカル版を利用してください。ローカル版と公開版は、シナリオ実装、レスポンス形式、HTML、CSS、JavaScriptを共有しています。
 
