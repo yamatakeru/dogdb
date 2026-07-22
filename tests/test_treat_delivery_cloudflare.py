@@ -26,3 +26,11 @@ def test_cloudflare_build_generates_static_demo(tmp_path, monkeypatch) -> None:
 
     headers = (dist / "_headers").read_text()
     assert "/api/acts/*\n  Cache-Control: no-store" in headers
+    assert "  X-Content-Type-Options: nosniff" in headers
+    assert "  Referrer-Policy: no-referrer" in headers
+    assert "  X-Frame-Options: DENY" in headers
+    assert (
+        "  Content-Security-Policy: default-src 'self'; img-src 'self'; "
+        "script-src 'self'; style-src 'self'; base-uri 'none'; "
+        "frame-ancestors 'none'; form-action 'none'"
+    ) in headers
