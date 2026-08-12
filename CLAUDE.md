@@ -1,7 +1,5 @@
 # Project's Claude Code Instructions
 
-本プロジェクトの開発ガイドはプロジェクトの AGENTS.md に統合されています。
-
 @AGENTS.md
 
 <!-- Claude Code固有のプロジェクト追加指示があればここに記載。
